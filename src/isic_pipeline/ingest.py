@@ -1,0 +1,2 @@
+"""Bronze ingestion entry point."""
+

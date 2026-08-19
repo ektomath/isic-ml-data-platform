@@ -1,0 +1,2 @@
+"""Silver validation entry point."""
+

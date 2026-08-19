@@ -1,0 +1,5 @@
+# Versioned preprocessing settings for training and evaluation.
+
+image_size: 224
+normalization: imagenet
+

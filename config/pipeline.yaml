@@ -1,0 +1,5 @@
+# Pipeline configuration for ISIC ingestion, validation, publishing, and training.
+
+dataset:
+  year: 2019
+

@@ -1,0 +1,2 @@
+"""Gold publishing entry point."""
+
