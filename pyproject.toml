@@ -8,7 +8,9 @@ version = "0.1.0"
 description = "ISIC data platform for Bronze/Silver/Gold image workflows"
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+  "PyYAML",
+]
 
 [project.optional-dependencies]
 dev = [
@@ -20,4 +22,3 @@ package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
-

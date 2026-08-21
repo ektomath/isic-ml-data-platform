@@ -62,9 +62,10 @@ The goal is to use AI as an accelerator while still maintaining correctness, cla
 ## Notebook flow
 
 - `notebooks/00_bootstrap_storage.ipynb`: reusable layout helper pattern
-- `notebooks/01_isic_2019_bootstrap.ipynb`: concrete Bronze setup for ISIC 2019
-- `notebooks/01_data_quality.ipynb`: data-quality exploration
-- `notebooks/02_baseline_results.ipynb`: baseline model results
+- `notebooks/isic_2019/10_bronze_setup.ipynb`: concrete Bronze setup for ISIC 2019
+- `notebooks/isic_2019/20_bronze_ingest_sample.ipynb`: Bronze sample ingest and layout check
+- `notebooks/30_data_quality_summary.ipynb`: data-quality exploration
+- `notebooks/40_baseline_results.ipynb`: baseline model results
 
 
 ## Licence

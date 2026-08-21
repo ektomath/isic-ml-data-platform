@@ -2,8 +2,49 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
+import yaml
+
+BRONZE_INGESTION_RUNS_DDL = """
+CREATE TABLE IF NOT EXISTS bronze.ingestion_runs (
+  ingestion_run_id STRING,
+  dataset_name STRING,
+  source_version STRING,
+  started_at TIMESTAMP,
+  finished_at TIMESTAMP,
+  status STRING,
+  records_seen INT,
+  records_written INT
+)
+USING DELTA
+"""
+
+ISIC_2019_SOURCE_METADATA_DDL = """
+CREATE TABLE IF NOT EXISTS bronze.isic_2019_source_metadata (
+  image_id STRING,
+  source_uri STRING,
+  patient_id STRING,
+  lesion_id STRING,
+  label_raw STRING,
+  label_source STRING,
+  label_normalized STRING,
+  acquisition_date STRING,
+  source_checksum STRING,
+  ingestion_run_id STRING,
+  ingested_at TIMESTAMP
+)
+USING DELTA
+"""
+
 
 DEFAULT_STORAGE_CONTAINER = "isic-data"
+
+
+def load_dataset_config(path: str | Path) -> dict:
+    """Load a dataset config from YAML."""
+    with Path(path).open("r", encoding="utf-8") as handle:
+        return yaml.safe_load(handle)
 
 
 def build_layout(dataset_config: dict) -> dict:
@@ -54,3 +95,10 @@ def build_layout(dataset_config: dict) -> dict:
             "classification_manifest": "gold.classification_manifest",
         },
     }
+
+
+def ensure_bronze_tables(spark) -> None:
+    """Create the Bronze schema and Bronze tables if needed."""
+    spark.sql("CREATE SCHEMA IF NOT EXISTS bronze")
+    spark.sql(BRONZE_INGESTION_RUNS_DDL)
+    spark.sql(ISIC_2019_SOURCE_METADATA_DDL)
