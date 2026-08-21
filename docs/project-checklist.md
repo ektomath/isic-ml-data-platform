@@ -8,11 +8,11 @@ Status key: `🟩` done, `🟨` in progress, `⬜` not started
 - 🟩 Pin the local Python version
 - 🟩 Set up `uv` for dependency management
 - 🟩 Intentionally leave the source code unlicensed for showcase use
-- ⬜ Confirm the Databricks workspace and deployment model
+- 🟩 Confirm the Databricks workspace and deployment model
 
 ## Bronze
 
-- ⬜ Define Bronze storage paths
+- 🟩 Define Bronze storage paths
 - ⬜ Ingest ISIC 2019 metadata
 - ⬜ Ingest ISIC 2019 labels
 - ⬜ Copy source JPEGs into Bronze

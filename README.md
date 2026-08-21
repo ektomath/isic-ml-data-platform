@@ -7,10 +7,11 @@ An Azure and Databricks-based ISIC 2019 data platform that turns raw images and 
 ## What this repository contains
 
 - `src/`: pipeline implementation for ingest, validate, publish, and train
+- `src/isic_pipeline/bootstrap.py`: shared dataset layout helpers
 - `config/`: versioned pipeline and preprocessing settings
 - `tests/`: fixture-backed checks that do not require the full ISIC dataset
 - `docs/`: architecture, data contract, and project checklist
-- `notebooks/`: data-quality and results notebooks
+- `notebooks/`: bootstrap, data-quality, and results notebooks
 
 ## Architecture
 
@@ -56,10 +57,16 @@ The project uses the [ISIC Archive](https://www.isic-archive.com/) and the [ISIC
 
 This project is built with heavy use of AI tools for iterative code and documentation generation. I review, edit, and validate the output manually, and I keep architectural decisions, implementation quality, and final responsibility under my own control.
 
-The goal is to use AI as an accelerator while still maintaining correctness, clarity, and maintainability.
+The goal is to use AI as an accelerator while still maintaining correctness, clarity, and maintainability. 
+
+## Notebook flow
+
+- `notebooks/00_bootstrap_storage.ipynb`: reusable layout helper pattern
+- `notebooks/01_isic_2019_bootstrap.ipynb`: concrete Bronze setup for ISIC 2019
+- `notebooks/01_data_quality.ipynb`: data-quality exploration
+- `notebooks/02_baseline_results.ipynb`: baseline model results
 
 
 ## Licence
 
 -
-
