@@ -10,7 +10,7 @@ The design keeps the original JPEGs in Bronze and uses Silver and Gold primarily
 
 ## Azure storage layout
 
-One Azure storage container is used for the medallion layers:
+One Azure storage container is used for the physical medallion file layout:
 
 ```text
 isic-data/
@@ -39,23 +39,31 @@ isic-data/
 
 ## Databricks structure
 
-When Unity Catalog is available, use a dedicated catalog for the project:
+When Unity Catalog is available, use a dedicated catalog for the project tables:
 
 ```text
 Catalog: isic_showcase
-  bronze/
-    source_metadata
-    ingestion_runs
-  silver/
-    image_inventory
-    labels
-    leakage_groups
-    rejected_records
-  gold/
-    classification_manifest
+  Schema: bronze
+    Tables:
+      ingestion_runs
+      isic_2019_source_metadata
+  Schema: silver
+    Tables:
+      image_inventory
+      labels
+      leakage_groups
+      rejected_records
+  Schema: gold
+    Tables:
+      classification_manifest
 ```
 
-The catalog holds tabular and metadata assets. The image files themselves remain in Azure Blob Storage Bronze.
+The catalog holds logical tabular assets. The physical image files, raw metadata files, manifests, and other file outputs remain in Azure storage paths.
+
+In other words:
+
+- Azure storage layout describes where files live.
+- Databricks / Unity Catalog structure describes where tables live.
 
 ## Databricks jobs
 

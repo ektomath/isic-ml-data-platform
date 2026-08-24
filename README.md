@@ -7,11 +7,12 @@ An Azure and Databricks-based ISIC 2019 data platform that turns raw images and 
 ## What this repository contains
 
 - `src/`: pipeline implementation for ingest, validate, publish, and train
-- `src/isic_pipeline/bootstrap.py`: shared dataset layout helpers
+- `src/isic_pipeline/setup.py`: shared dataset layout helpers
 - `config/`: versioned pipeline and preprocessing settings
 - `tests/`: fixture-backed checks that do not require the full ISIC dataset
 - `docs/`: architecture, data contract, and project checklist
-- `notebooks/`: bootstrap, data-quality, and results notebooks
+- `AGENT.md`: canonical repo-local agent instructions and working context
+- `notebooks/`: setup, data-quality, and results notebooks
 
 ## Architecture
 
@@ -57,11 +58,13 @@ The project uses the [ISIC Archive](https://www.isic-archive.com/) and the [ISIC
 
 This project is built with heavy use of AI tools for iterative code and documentation generation. I review, edit, and validate the output manually, and I keep architectural decisions, implementation quality, and final responsibility under my own control.
 
-The goal is to use AI as an accelerator while still maintaining correctness, clarity, and maintainability. 
+The goal is to use AI as an accelerator/amplifier while still maintaining correctness, clarity, and maintainability. 
+
+In general my workflow is to generate smaller sections of code in chunks rather than prompt the AI to "build data engineering pipeline, no mistakes please."
 
 ## Notebook flow
 
-- `notebooks/00_bootstrap_storage.ipynb`: reusable layout helper pattern
+- `notebooks/00_setup_storage.ipynb`: shared medallion schemas and storage conventions
 - `notebooks/isic_2019/10_bronze_setup.ipynb`: concrete Bronze setup for ISIC 2019
 - `notebooks/isic_2019/20_bronze_ingest_sample.ipynb`: Bronze sample ingest and layout check
 - `notebooks/30_data_quality_summary.ipynb`: data-quality exploration
