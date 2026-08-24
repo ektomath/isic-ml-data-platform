@@ -23,17 +23,19 @@ Ask the agent to reread this file after long gaps, after conversation compaction
 
 ## Notebook flow
 
-1. `notebooks/00_setup_storage.ipynb`
-2. `notebooks/isic_2019/10_bronze_setup.ipynb`
-3. `notebooks/isic_2019/20_bronze_ingest_sample.ipynb`
-4. `notebooks/30_data_quality_summary.ipynb`
-5. `notebooks/40_baseline_results.ipynb`
+1. `notebooks/_setup_env.ipynb`
+2. `notebooks/00_setup_storage.ipynb`
+3. `notebooks/isic_2019/10_bronze_setup.ipynb`
+4. `notebooks/isic_2019/20_bronze_ingest_sample.ipynb`
+5. `notebooks/30_data_quality_summary.ipynb`
+6. `notebooks/40_baseline_results.ipynb`
 
 ## Notebook organization
 
 - Use stage-based numbering with gaps: `00`, `10`, `20`, `30`, `40`
 - Group dataset-specific notebooks under a dataset folder
 - Keep setup and sample ingestion separate from quality and results notebooks
+- Use `notebooks/_setup_env.ipynb` as the shared Databricks import/bootstrap notebook
 - Use `00_setup_storage.ipynb` only for shared schemas and medallion conventions
 
 ## Shared code

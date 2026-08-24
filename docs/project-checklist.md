@@ -17,6 +17,7 @@ Status key: `🟩` done, `🟨` in progress, `⬜` not started
 - ⬜ Ingest ISIC 2019 labels
 - ⬜ Copy source JPEGs into Bronze
 - ⬜ Record ingestion runs and checksums
+- ⬜ Create general helper functions that load dataset config files and then create schemas and folders from them
 
 ## Silver
 
