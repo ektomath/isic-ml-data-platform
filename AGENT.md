@@ -59,6 +59,7 @@ Ask the agent to reread this file after long gaps, after conversation compaction
 
 ## Configuration rules
 
+- Keep the governed shared data root in `config/storage.yaml`
 - Load dataset config from `config/datasets/<dataset>.yaml` when the same config is shared across notebooks
 - Do not redefine shared dataset config dicts inside notebooks
 - Keep shared helpers in `src/isic_pipeline/setup.py`

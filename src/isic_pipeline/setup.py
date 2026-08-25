@@ -10,25 +10,36 @@ import yaml
 DEFAULT_STORAGE_CONTAINER = "isic-data"
 
 
-def load_dataset_config(path: str | Path) -> dict:
-    """Load a dataset config from YAML."""
+def load_yaml_config(path: str | Path) -> dict:
+    """Load a YAML config file."""
     with Path(path).open("r", encoding="utf-8") as handle:
         return yaml.safe_load(handle)
+
+
+def load_dataset_config(path: str | Path) -> dict:
+    """Load a dataset config from YAML."""
+    return load_yaml_config(path)
+
+
+def join_storage_path(storage_root: str, relative_path: str) -> str:
+    """Join a governed storage root and a relative medallion path."""
+    return f"{storage_root.rstrip('/')}/{relative_path.lstrip('/')}"
 
 
 def build_layout(dataset_config: dict) -> dict:
     """Build path and table names from a dataset config."""
     dataset_key = dataset_config["dataset_key"]
+    storage_root = dataset_config["storage_root"]
     bronze_prefix = dataset_config["bronze_prefix"]
     silver_prefix = dataset_config.get("silver_prefix")
     gold_prefix = dataset_config.get("gold_prefix")
 
     return {
         "bronze_paths": {
-            "root": bronze_prefix,
-            "images": f"{bronze_prefix}/images",
-            "metadata": f"{bronze_prefix}/metadata",
-            "ingestion_runs": f"{bronze_prefix}/ingestion_runs",
+            "root": join_storage_path(storage_root, bronze_prefix),
+            "images": join_storage_path(storage_root, f"{bronze_prefix}/images"),
+            "metadata": join_storage_path(storage_root, f"{bronze_prefix}/metadata"),
+            "ingestion_runs": join_storage_path(storage_root, f"{bronze_prefix}/ingestion_runs"),
         },
         "bronze_tables": {
             "source_metadata": f"bronze.{dataset_key}_source_metadata",
@@ -37,11 +48,11 @@ def build_layout(dataset_config: dict) -> dict:
         "silver_paths": None
         if silver_prefix is None
         else {
-            "root": silver_prefix,
-            "image_inventory": f"{silver_prefix}/image_inventory",
-            "labels": f"{silver_prefix}/labels",
-            "leakage_groups": f"{silver_prefix}/leakage_groups",
-            "rejected_records": f"{silver_prefix}/rejected_records",
+            "root": join_storage_path(storage_root, silver_prefix),
+            "image_inventory": join_storage_path(storage_root, f"{silver_prefix}/image_inventory"),
+            "labels": join_storage_path(storage_root, f"{silver_prefix}/labels"),
+            "leakage_groups": join_storage_path(storage_root, f"{silver_prefix}/leakage_groups"),
+            "rejected_records": join_storage_path(storage_root, f"{silver_prefix}/rejected_records"),
         },
         "silver_tables": None
         if silver_prefix is None
@@ -53,10 +64,10 @@ def build_layout(dataset_config: dict) -> dict:
         "gold_paths": None
         if gold_prefix is None
         else {
-            "root": gold_prefix,
-            "manifest": f"{gold_prefix}/manifest.parquet",
-            "preprocessing": f"{gold_prefix}/preprocessing.yaml",
-            "dataset_card": f"{gold_prefix}/dataset_card.md",
+            "root": join_storage_path(storage_root, gold_prefix),
+            "manifest": join_storage_path(storage_root, f"{gold_prefix}/manifest.parquet"),
+            "preprocessing": join_storage_path(storage_root, f"{gold_prefix}/preprocessing.yaml"),
+            "dataset_card": join_storage_path(storage_root, f"{gold_prefix}/dataset_card.md"),
         },
         "gold_tables": None
         if gold_prefix is None
