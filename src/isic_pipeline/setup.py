@@ -41,6 +41,7 @@ def build_layout(dataset_config: dict) -> dict:
         else {
             "root": landing_root.rstrip("/"),
             "archives": join_storage_path(landing_root, "archives"),
+            "dataset_archive": join_storage_path(landing_root, f"archives/{dataset_key}"),
         },
         "bronze_paths": {
             "root": join_storage_path(storage_root, bronze_prefix),

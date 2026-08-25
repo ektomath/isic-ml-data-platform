@@ -15,6 +15,7 @@ Two Unity Catalog volumes are used for file storage:
 ```text
 /Volumes/derm_showcase_project/bronze/landing/
   archives/
+    isic_2019/
 /Volumes/derm_showcase_project/bronze/files/
   isic_2019/
     images/
