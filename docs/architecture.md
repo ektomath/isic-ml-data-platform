@@ -1,6 +1,6 @@
 # Architecture
 
-This project uses a Bronze / Silver / Gold medallion layout on Azure Data Lake Storage Gen2, with Databricks handling ingestion, validation, transformation, and model training.
+This project uses a Bronze / Silver / Gold medallion layout on Databricks Unity Catalog, with Databricks handling ingestion, validation, transformation, and model training.
 
 ## System overview
 
@@ -8,12 +8,14 @@ This project uses a Bronze / Silver / Gold medallion layout on Azure Data Lake S
 
 The design keeps the original JPEGs in Bronze and uses Silver and Gold primarily for tabular outputs, manifests, and quality records that reference the Bronze assets.
 
-## Azure storage layout
+## Storage layout
 
-One Azure storage container is used for the physical medallion file layout:
+Two Unity Catalog volumes are used for file storage:
 
 ```text
-isic-data/
+/Volumes/isic/bronze/landing/
+  archives/
+/Volumes/isic/bronze/isic-data/
   bronze/isic/2019/
     images/
     metadata/
@@ -39,7 +41,7 @@ isic-data/
 
 ## Databricks structure
 
-When Unity Catalog is available, use a dedicated catalog for the project tables:
+Use a dedicated catalog for the project tables and keep file storage in volumes:
 
 ```text
 Catalog: isic_showcase
@@ -47,6 +49,9 @@ Catalog: isic_showcase
     Tables:
       ingestion_runs
       isic_2019_source_metadata
+    Volumes:
+      landing
+      isic_data
   Schema: silver
     Tables:
       image_inventory
@@ -58,11 +63,11 @@ Catalog: isic_showcase
       classification_manifest
 ```
 
-The catalog holds logical tabular assets. The physical image files, raw metadata files, manifests, and other file outputs remain in Azure storage paths.
+The catalog holds logical tabular assets. The physical image files, raw metadata files, manifests, and other file outputs remain in Unity Catalog volume paths.
 
 In other words:
 
-- Azure storage layout describes where files live.
+- Unity Catalog volume layout describes where files live.
 - Databricks / Unity Catalog structure describes where tables live.
 
 ## Databricks jobs

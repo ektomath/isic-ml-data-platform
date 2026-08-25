@@ -29,12 +29,19 @@ def join_storage_path(storage_root: str, relative_path: str) -> str:
 def build_layout(dataset_config: dict) -> dict:
     """Build path and table names from a dataset config."""
     dataset_key = dataset_config["dataset_key"]
+    landing_root = dataset_config.get("landing_root")
     storage_root = dataset_config["storage_root"]
     bronze_prefix = dataset_config["bronze_prefix"]
     silver_prefix = dataset_config.get("silver_prefix")
     gold_prefix = dataset_config.get("gold_prefix")
 
     return {
+        "landing_paths": None
+        if landing_root is None
+        else {
+            "root": landing_root.rstrip("/"),
+            "archives": join_storage_path(landing_root, "archives"),
+        },
         "bronze_paths": {
             "root": join_storage_path(storage_root, bronze_prefix),
             "images": join_storage_path(storage_root, f"{bronze_prefix}/images"),

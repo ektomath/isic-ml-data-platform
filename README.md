@@ -8,7 +8,7 @@ An Azure and Databricks-based ISIC 2019 data platform that turns raw images and 
 
 - `src/`: pipeline implementation for ingest, validate, publish, and train
 - `src/isic_pipeline/setup.py`: shared dataset layout helpers
-- `config/`: versioned pipeline and preprocessing settings
+- `config/`: versioned pipeline, preprocessing, and shared storage-root settings
 - `tests/`: fixture-backed checks that do not require the full ISIC dataset
 - `docs/`: architecture, data contract, and project checklist
 - `AGENT.md`: canonical repo-local agent instructions and working context
@@ -16,9 +16,9 @@ An Azure and Databricks-based ISIC 2019 data platform that turns raw images and 
 
 ## Architecture
 
-The platform keeps raw JPEGs in Bronze, validates and normalizes records in Silver, and publishes a versioned training manifest in Gold.
+The platform keeps source archives in a landing volume, raw JPEGs in Bronze, validates and normalizes records in Silver, and publishes a versioned training manifest in Gold.
 
-See [docs/architecture.md](docs/architecture.md) for the system layout, Azure storage structure, and Databricks execution model.
+See [docs/architecture.md](docs/architecture.md) for the system layout, Unity Catalog storage structure, and Databricks execution model.
 
 ## Data contract
 

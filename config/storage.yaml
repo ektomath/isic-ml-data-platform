@@ -1,1 +1,3 @@
-storage_root: /Volumes/isic/bronze/landing/isic-data
+# Shared Unity Catalog volume roots.
+landing_root: /Volumes/isic/bronze/landing
+storage_root: /Volumes/isic/bronze/isic-data
