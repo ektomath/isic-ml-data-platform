@@ -13,7 +13,7 @@ Ask the agent to reread this file after long gaps, after conversation compaction
 
 - Notebook-first Databricks workflow
 - Shared medallion setup plus end-to-end Bronze ingestion for ISIC 2019
-- Shared setup code in `src/isic_pipeline/setup.py`
+- Shared setup code in `src/data_platform/setup.py`
 
 ## Repository shape
 
@@ -61,7 +61,7 @@ Ask the agent to reread this file after long gaps, after conversation compaction
 - Keep the governed shared landing and medallion roots in `config/storage.yaml`
 - Load dataset config from `config/datasets/<dataset>.yaml` when the same config is shared across notebooks
 - Do not redefine shared dataset config dicts inside notebooks
-- Keep shared helpers in `src/isic_pipeline/setup.py`
+- Keep shared helpers in `src/data_platform/setup.py`
 - Keep shared tables in `00_setup_storage.ipynb`
 - Keep dataset-specific DDL in the dataset setup notebook, not in shared code
 - Create the shared landing folder and medallion root folders in `00_setup_storage.ipynb`

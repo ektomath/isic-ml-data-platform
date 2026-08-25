@@ -1,2 +1,1 @@
-"""ISIC pipeline package."""
-
+"""Backward-compatible package alias for legacy imports."""
