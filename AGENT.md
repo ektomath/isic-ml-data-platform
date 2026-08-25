@@ -12,7 +12,7 @@ Ask the agent to reread this file after long gaps, after conversation compaction
 ## Current focus
 
 - Notebook-first Databricks workflow
-- Shared medallion setup plus Bronze setup and Bronze sample ingestion for ISIC 2019
+- Shared medallion setup plus end-to-end Bronze ingestion for ISIC 2019
 - Shared setup code in `src/isic_pipeline/setup.py`
 
 ## Repository shape
@@ -26,15 +26,14 @@ Ask the agent to reread this file after long gaps, after conversation compaction
 1. `notebooks/_setup_env.ipynb`
 2. `notebooks/00_setup_storage.ipynb`
 3. `notebooks/isic_2019/10_bronze_setup.ipynb`
-4. `notebooks/isic_2019/20_bronze_ingest_sample.ipynb`
-5. `notebooks/30_data_quality_summary.ipynb`
-6. `notebooks/40_baseline_results.ipynb`
+4. `notebooks/30_data_quality_summary.ipynb`
+5. `notebooks/40_baseline_results.ipynb`
 
 ## Notebook organization
 
 - Use stage-based numbering with gaps: `00`, `10`, `20`, `30`, `40`
 - Group dataset-specific notebooks under a dataset folder
-- Keep setup and sample ingestion separate from quality and results notebooks
+- Keep Bronze ingestion separate from quality and results notebooks
 - Use `notebooks/_setup_env.ipynb` as the shared Databricks import/bootstrap notebook
 - Use `00_setup_storage.ipynb` only for shared schemas and medallion conventions
 
@@ -66,7 +65,7 @@ Ask the agent to reread this file after long gaps, after conversation compaction
 - Keep shared tables in `00_setup_storage.ipynb`
 - Keep dataset-specific DDL in the dataset setup notebook, not in shared code
 - Create the shared landing folder and medallion root folders in `00_setup_storage.ipynb`
-- Keep dataset-specific folder paths in the dataset setup notebook, not in the sample ingest notebook
+- Keep dataset-specific folder paths in the dataset Bronze notebook
 
 ## Guardrails
 
@@ -77,8 +76,8 @@ Ask the agent to reread this file after long gaps, after conversation compaction
 
 ## Current next step
 
-- Replace synthetic Bronze sample rows with a small real ISIC 2019 sample
-- Verify storage writes and rerun behavior in Databricks
+- Run the end-to-end Bronze ingestion notebook in Databricks
+- Verify rerun behavior and inspect the landed archive, extracted files, and Bronze tables
 
 ## Update rule
 

@@ -7,9 +7,6 @@ from pathlib import Path
 import yaml
 
 
-DEFAULT_STORAGE_CONTAINER = "isic-data"
-
-
 def load_yaml_config(path: str | Path) -> dict:
     """Load a YAML config file."""
     with Path(path).open("r", encoding="utf-8") as handle:
