@@ -1,6 +1,6 @@
 dataset_key: isic_2019
 dataset_name: isic/2019
 source_version: "2019"
-bronze_prefix: bronze/isic/2019
+bronze_prefix: isic_2019
 silver_prefix: null
 gold_prefix: null

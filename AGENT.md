@@ -47,8 +47,8 @@ Ask the agent to reread this file after long gaps, after conversation compaction
 
 - Shared table: `bronze.ingestion_runs`
 - `bronze.isic_2019_source_metadata`
-- Raw JPEGs stay in Bronze paths under `bronze/isic/2019/images`
-- Raw metadata files stay in `bronze/isic/2019/metadata`
+- Raw JPEGs stay in Bronze paths under `isic_2019/images`
+- Raw metadata files stay in `isic_2019/metadata`
 
 ## Table strategy
 

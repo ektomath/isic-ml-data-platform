@@ -13,14 +13,14 @@ The design keeps the original JPEGs in Bronze and uses Silver and Gold primarily
 Two Unity Catalog volumes are used for file storage:
 
 ```text
-/Volumes/isic/bronze/landing/
+/Volumes/derm_showcase_project/bronze/landing/
   archives/
-/Volumes/isic/bronze/isic-data/
-  bronze/isic/2019/
+/Volumes/derm_showcase_project/bronze/files/
+  isic_2019/
     images/
     metadata/
     ingestion_runs/
-  silver/isic/2019/
+  silver/isic_2019/
     image_inventory/
     labels/
     leakage_groups/
@@ -44,14 +44,14 @@ Two Unity Catalog volumes are used for file storage:
 Use a dedicated catalog for the project tables and keep file storage in volumes:
 
 ```text
-Catalog: isic_showcase
+Catalog: derm_showcase_project
   Schema: bronze
     Tables:
       ingestion_runs
       isic_2019_source_metadata
     Volumes:
       landing
-      isic_data
+      files
   Schema: silver
     Tables:
       image_inventory
