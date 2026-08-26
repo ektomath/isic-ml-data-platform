@@ -25,9 +25,10 @@ Ask the agent to reread this file after long gaps, after conversation compaction
 
 1. `notebooks/_setup_env.ipynb`
 2. `notebooks/00_setup_storage.ipynb`
-3. `notebooks/isic_2019/10_bronze_ingest.ipynb`
-4. `notebooks/30_data_quality_summary.ipynb`
-5. `notebooks/40_baseline_results.ipynb`
+3. `notebooks/isic_2019/05_create_bronze_tables_and_folders.ipynb`
+4. `notebooks/isic_2019/10_bronze_ingest.ipynb`
+5. `notebooks/30_data_quality_summary.ipynb`
+6. `notebooks/40_baseline_results.ipynb`
 
 ## Notebook organization
 

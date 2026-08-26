@@ -66,6 +66,7 @@ In general my workflow is to generate smaller sections of code in chunks rather 
 
 - `notebooks/_setup_env.ipynb`: shared Databricks notebook environment setup for imports
 - `notebooks/00_setup_storage.ipynb`: shared medallion schemas and storage conventions
+- `notebooks/isic_2019/05_create_bronze_tables_and_folders.ipynb`: ISIC 2019 Bronze table and volume folder setup
 - `notebooks/isic_2019/10_bronze_ingest.ipynb`: end-to-end Bronze ingestion for ISIC 2019
 - `notebooks/30_data_quality_summary.ipynb`: data-quality exploration
 - `notebooks/40_baseline_results.ipynb`: baseline model results
