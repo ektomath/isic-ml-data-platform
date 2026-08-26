@@ -18,14 +18,26 @@ Source metadata extracted from the ISIC release and preserved without model-spec
 
 | Field | Type | Notes |
 |---|---|---|
-| `image_id` | string | Stable ISIC identifier |
+| `image_id` | string | Stable ISIC identifier from `isic_id` |
+| `source_split` | string | Source archive split, for example `train` or `test` |
 | `source_uri` | string | Bronze path to the JPEG |
-| `patient_id` | string or null | If available in source metadata |
+| `attribution` | string or null | Source attribution text |
+| `copyright_license` | string or null | Source license value |
+| `age_approx` | string or null | Approximate patient age from source metadata |
+| `anatom_site_1` ... `anatom_site_5` | string or null | Source anatomic site hierarchy |
+| `anatom_site_special` | string or null | Source special anatomic site value |
+| `clin_size_long_diam_mm` | string or null | Clinical size value from source metadata |
+| `concomitant_biopsy` | string or null | Source biopsy flag/value |
+| `dermoscopic_type` | string or null | Source dermoscopic type |
+| `diagnosis_1` ... `diagnosis_5` | string or null | Source diagnosis hierarchy |
+| `diagnosis_confirm_type` | string or null | Diagnosis confirmation type |
+| `family_hx_mm` | string or null | Family melanoma history value |
+| `image_type` | string or null | Source image type |
 | `lesion_id` | string or null | If available in source metadata |
-| `label_raw` | string or null | Raw source label value |
-| `label_source` | string or null | Source file or record name |
-| `label_normalized` | string or null | Filled only when the source mapping is unambiguous |
-| `acquisition_date` | string or null | Preserve original source value |
+| `melanocytic` | string or null | Source melanocytic flag/value |
+| `patient_id` | string or null | If available in source metadata |
+| `personal_hx_mm` | string or null | Personal melanoma history value |
+| `sex` | string or null | Source sex value |
 | `source_checksum` | string | SHA-256 of the JPEG |
 | `ingestion_run_id` | string | Links to the ingestion run |
 | `ingested_at` | timestamp | Pipeline timestamp |
