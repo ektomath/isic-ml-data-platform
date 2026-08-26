@@ -103,7 +103,7 @@ ISIC source  ->  Bronze originals  ->  Silver validated inventory  ->  Gold mode
 
 **Estimate:** 0.5-1 day
 - Define the MVP as Bronze ingestion, Silver validation, one Gold classifier manifest, one baseline model and a public case study.
-- Create pyproject.toml, src/isic_pipeline, pipelines, tests, config, docs and notebooks directories.
+- Create pyproject.toml, src/data_platform, pipelines, tests, config, docs and notebooks directories.
 - Add 10-20 synthetic or permitted fixtures covering valid, corrupt, duplicate and missing-label cases.
 - List non-goals: clinical deployment, full-archive ingestion, real-time streaming, multi-environment CI/CD and super-resolution before Release 2.
 
