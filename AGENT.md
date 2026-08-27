@@ -1,6 +1,6 @@
 # AGENT
 
-Last updated: 2026-08-24
+Last updated: 2026-08-26
 
 This is the canonical repo-local instruction file for project working state and conventions.
 Ask the agent to reread this file after long gaps, after conversation compaction, or when project conventions change.
@@ -32,7 +32,7 @@ Ask the agent to reread this file after long gaps, after conversation compaction
 
 ## Notebook organization
 
-- Use stage-based numbering with gaps: `00`, `10`, `20`, `30`, `40`
+- Use stage-based numbering with gaps. Use `00` for global setup, `05` for dataset-specific object/folder setup, `10` for Bronze ingestion, then `20`, `30`, `40` for later stages.
 - Group dataset-specific notebooks under a dataset folder
 - Keep Bronze ingestion separate from quality and results notebooks
 - Use `notebooks/_setup_env.ipynb` as the shared Databricks import/bootstrap notebook
@@ -42,6 +42,7 @@ Ask the agent to reread this file after long gaps, after conversation compaction
 
 - `build_layout(dataset_config)`
 - `load_dataset_config(path)`
+- `data_platform.files` helpers for archive extraction, image detection, file listing, and checksums
 
 ## Bronze contract
 
@@ -61,6 +62,7 @@ Ask the agent to reread this file after long gaps, after conversation compaction
 
 - Keep the governed shared landing and medallion roots in `config/storage.yaml`
 - Load dataset config from `config/datasets/<dataset>.yaml` when the same config is shared across notebooks
+- Keep dataset archive filenames and expected metadata filenames in `config/datasets/<dataset>.yaml`
 - Do not redefine shared dataset config dicts inside notebooks
 - Keep shared helpers in `src/data_platform/setup.py`
 - Keep shared tables in `00_setup_storage.ipynb`

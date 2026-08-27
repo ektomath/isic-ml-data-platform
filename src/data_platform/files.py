@@ -80,6 +80,9 @@ def materialize_zip_images_and_metadata(
 ) -> dict:
     """Extract zip images idempotently and optionally extract one metadata file."""
     expected_image_count = count_zip_image_members(archive_path)
+    if expected_image_count == 0:
+        raise RuntimeError(f"No image files found in archive: {archive_path}")
+
     existing_images = list_files_by_suffix(image_root, IMAGE_SUFFIXES)
 
     if overwrite and image_root.exists():

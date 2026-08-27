@@ -20,7 +20,6 @@ Two Unity Catalog volumes are used for file storage:
   isic_2019/
     images/
     metadata/
-    ingestion_runs/
   silver/isic_2019/
     image_inventory/
     labels/

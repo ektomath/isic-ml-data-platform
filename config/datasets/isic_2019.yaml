@@ -4,3 +4,10 @@ source_version: "2019"
 bronze_prefix: isic_2019
 silver_prefix: null
 gold_prefix: null
+archives:
+  - source_split: train
+    archive_filename: ISIC-2019-train-images.zip
+    metadata_filename: metadata.csv
+  - source_split: test
+    archive_filename: ISIC-2019-test-images.zip
+    metadata_filename: metadata.csv

@@ -44,7 +44,6 @@ def build_layout(dataset_config: dict) -> dict:
             "root": join_storage_path(storage_root, bronze_prefix),
             "images": join_storage_path(storage_root, f"{bronze_prefix}/images"),
             "metadata": join_storage_path(storage_root, f"{bronze_prefix}/metadata"),
-            "ingestion_runs": join_storage_path(storage_root, f"{bronze_prefix}/ingestion_runs"),
         },
         "bronze_tables": {
             "source_metadata": f"bronze.{dataset_key}_source_metadata",
