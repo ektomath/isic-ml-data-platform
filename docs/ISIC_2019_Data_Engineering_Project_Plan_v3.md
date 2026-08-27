@@ -52,7 +52,7 @@ ISIC source  ->  Bronze originals  ->  Silver validated inventory  ->  Gold mode
 
 | Layer | Purpose | Physical assets | Must not happen |
 |---|---|---|---|
-| Bronze | Preserve source faithfully | Original JPEGs, CSV/JSON metadata, source manifest, ingestion ledger | Resize, recompress or overwrite source images |
+| Bronze | Preserve source faithfully | Original image bytes in Delta, CSV/JSON metadata, source manifest, ingestion ledger | Resize, recompress or overwrite source images |
 | Silver | Validate and normalize | Delta inventory, labels, group IDs, quality and rejected records | Copy every JPEG merely to claim another layer |
 | Gold | Publish for a specific consumer | Classifier manifest, preprocessing config, SR pair manifest/shards, dataset card | Change a published version in place |
 
@@ -163,13 +163,13 @@ ISIC source  ->  Bronze originals  ->  Silver validated inventory  ->  Gold mode
 
 #### BRZ-002 Ingest original images and prove idempotency
 
-**Outcome:** Original JPEGs stored under stable image-ID paths with concise rerun evidence.
+**Outcome:** Original image bytes stored as stable Bronze table rows with concise rerun evidence.
 
 **Depends On:** BRZ-001
 
 **Estimate:** 1-2 days
 - Use the official challenge archive or isic-cli for the bulk historical load.
-- Download to local or temporary landing storage, calculate SHA-256 and upload only missing or changed objects.
+- Stage each archive locally, calculate SHA-256 from local image bytes, and write image rows with batched Spark table writes.
 - Record downloaded, skipped, failed, bytes and duration; never resize or recompress Bronze images.
 - Run the completed load a second time and capture its zero-change metrics.
 

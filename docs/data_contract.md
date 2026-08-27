@@ -5,8 +5,8 @@ This document defines the canonical records and file outputs used by the ISIC pl
 ## Conventions
 
 - IDs are stable and should not change across pipeline runs.
-- Paths are stored as logical storage locations, not local filesystem paths.
-- Image bytes are stored only in Bronze.
+- Paths and table-row references are stored as logical storage locations, not local filesystem paths.
+- Image bytes are stored only in the Bronze image blob table.
 - Silver and Gold primarily store tables, manifests, and quality records.
 - All tabular outputs should be deterministic for a given source snapshot and configuration.
 
@@ -20,7 +20,7 @@ Source metadata extracted from the ISIC release and preserved without model-spec
 |---|---|---|
 | `image_id` | string | Stable ISIC identifier from `isic_id` |
 | `source_split` | string | Source archive split, for example `train` or `test` |
-| `source_uri` | string | Bronze path to the JPEG |
+| `source_uri` | string | Logical reference to the Bronze image blob row |
 | `attribution` | string or null | Source attribution text |
 | `copyright_license` | string or null | Source license value |
 | `age_approx` | string or null | Approximate patient age from source metadata |
@@ -38,9 +38,23 @@ Source metadata extracted from the ISIC release and preserved without model-spec
 | `patient_id` | string or null | If available in source metadata |
 | `personal_hx_mm` | string or null | Personal melanoma history value |
 | `sex` | string or null | Source sex value |
-| `source_checksum` | string | SHA-256 of the JPEG |
+| `source_checksum` | string | SHA-256 of the source image bytes |
 | `ingestion_run_id` | string | Links to the ingestion run |
 | `ingested_at` | timestamp | Pipeline timestamp |
+
+### `bronze.isic_2019_image_blobs`
+
+Source image bytes extracted from locally staged ISIC release archives and stored as Delta rows.
+
+| Field | Type | Notes |
+|---|---|---|
+| `image_id` | string | Stable ISIC identifier from the archive member filename |
+| `source_split` | string | Source archive split, for example `train` or `test` |
+| `archive_member_path` | string | Path of the image inside the source zip archive |
+| `source_archive_uri` | string | Landing Volume URI for the original source archive |
+| `image_bytes` | binary | Original encoded image bytes |
+| `byte_length` | long | Number of encoded bytes |
+| `source_checksum` | string | SHA-256 of `image_bytes` |
 
 ### `bronze.ingestion_runs`
 
@@ -66,7 +80,7 @@ One row per image after validation and normalization.
 | Field | Type | Notes |
 |---|---|---|
 | `image_id` | string | Stable ISIC identifier |
-| `bronze_uri` | string | Bronze JPEG location |
+| `bronze_uri` | string | Bronze image blob row reference |
 | `source_checksum` | string | SHA-256 copied from Bronze |
 | `image_width` | integer or null | Decoded width |
 | `image_height` | integer or null | Decoded height |
@@ -97,7 +111,7 @@ Rejected images and records with validation failures.
 | Field | Type | Notes |
 |---|---|---|
 | `image_id` | string | Stable ISIC identifier |
-| `bronze_uri` | string | Original source path |
+| `bronze_uri` | string | Original Bronze image blob row reference |
 | `rejection_reason` | string | Human-readable failure reason |
 | `rejected_at` | timestamp | Timestamp of rejection |
 
@@ -111,7 +125,7 @@ One row per image in the training-ready dataset.
 |---|---|---|
 | `dataset_version` | string | Version tag such as `v1` |
 | `image_id` | string | Stable ISIC identifier |
-| `bronze_uri` | string | Immutable Bronze path |
+| `bronze_uri` | string | Immutable Bronze image blob row reference |
 | `source_checksum` | string | SHA-256 from Bronze |
 | `label` | string | Final normalized training label |
 | `group_id` | string | Leakage-control group |
@@ -146,14 +160,14 @@ The preprocessing configuration stored with a Gold release must include:
 
 ## File and partitioning rules
 
-- JPEGs stay in Bronze.
+- Source image bytes stay in the Bronze image blob table.
 - Silver and Gold tables may be partitioned by dataset year or release version if the volume warrants it.
 - Do not create duplicate physical image copies in Silver or Gold.
 - Do not register every image as a separate table in every layer unless the table has a clear analytical purpose.
 
 ## Validation rules
 
-- Every accepted Silver image must have a Bronze URI and source checksum.
+- Every accepted Silver image must have a Bronze image blob reference and source checksum.
 - Every Gold row must map back to a Silver image_inventory row.
 - Every Gold release must be reproducible from source data, Git commit, and config files.
 - Rejected rows must preserve enough context to explain why the record was excluded.

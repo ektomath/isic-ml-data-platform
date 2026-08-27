@@ -1,6 +1,6 @@
 # AGENT
 
-Last updated: 2026-08-26
+Last updated: 2026-08-27
 
 This is the canonical repo-local instruction file for project working state and conventions.
 Ask the agent to reread this file after long gaps, after conversation compaction, or when project conventions change.
@@ -42,13 +42,13 @@ Ask the agent to reread this file after long gaps, after conversation compaction
 
 - `build_layout(dataset_config)`
 - `load_dataset_config(path)`
-- `data_platform.files` helpers for archive extraction, image detection, file listing, and checksums
+- `data_platform.files` helpers for archive staging, image blob rows, archive extraction, image detection, file listing, and checksums
 
 ## Bronze contract
 
 - Shared table: `bronze.ingestion_runs`
 - `bronze.isic_2019_source_metadata`
-- Raw JPEGs stay in Bronze paths under `isic_2019/images`
+- Raw image bytes stay in `bronze.isic_2019_image_blobs`
 - Raw metadata files stay in `isic_2019/metadata`
 
 ## Table strategy
@@ -80,7 +80,7 @@ Ask the agent to reread this file after long gaps, after conversation compaction
 ## Current next step
 
 - Run the end-to-end Bronze ingestion notebook in Databricks
-- Verify rerun behavior and inspect the landed archive, extracted files, and Bronze tables
+- Verify rerun behavior and inspect the landed archive, image blob table, metadata files, and Bronze tables
 
 ## Update rule
 

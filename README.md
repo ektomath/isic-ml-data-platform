@@ -16,7 +16,7 @@ An Azure and Databricks-based ISIC 2019 data platform that turns raw images and 
 
 ## Architecture
 
-The platform keeps source archives in a landing volume, raw JPEGs in Bronze, validates and normalizes records in Silver, and publishes a versioned training manifest in Gold.
+The platform keeps source archives in a landing volume, stores raw image bytes in a Bronze Delta table, validates and normalizes records in Silver, and publishes a versioned training manifest in Gold.
 
 See [docs/architecture.md](docs/architecture.md) for the system layout, Unity Catalog storage structure, and Databricks execution model.
 

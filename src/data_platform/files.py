@@ -12,6 +12,21 @@ from typing import Callable
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png"}
 
 
+def stage_archive_locally(archive_path: Path, local_root: Path, overwrite: bool = False) -> Path:
+    """Copy one source archive to local disk and return the staged path."""
+    local_root.mkdir(parents=True, exist_ok=True)
+    staged_path = local_root / archive_path.name
+    if staged_path.exists():
+        if overwrite:
+            staged_path.unlink()
+        elif staged_path.stat().st_size == archive_path.stat().st_size:
+            return staged_path
+        else:
+            raise RuntimeError(f"Local staged archive differs from source: {staged_path}")
+    shutil.copy2(archive_path, staged_path)
+    return staged_path
+
+
 def extract_archive(archive_path: Path, destination_root: Path) -> Path:
     """Extract a zip or tar archive into a destination folder."""
     destination_root.mkdir(parents=True, exist_ok=True)
@@ -69,6 +84,35 @@ def count_zip_image_members(archive_path: Path) -> int:
 def extract_zip_images(archive_path: Path, destination_root: Path) -> list[Path]:
     """Extract image files from a zip archive into destination_root."""
     return extract_zip_members(archive_path, destination_root, is_image_file)
+
+
+def build_image_blob_rows(
+    archive_path: Path,
+    source_split: str,
+    source_archive_uri: str | None = None,
+) -> list[dict]:
+    """Build Spark-ready binary image rows directly from a local zip archive."""
+    rows = []
+    with zipfile.ZipFile(archive_path) as handle:
+        for member in handle.infolist():
+            if member.is_dir():
+                continue
+            member_path = Path(member.filename)
+            if not is_image_file(member_path):
+                continue
+            image_bytes = handle.read(member)
+            rows.append(
+                {
+                    "image_id": member_path.stem,
+                    "source_split": source_split,
+                    "archive_member_path": member_path.as_posix(),
+                    "source_archive_uri": source_archive_uri,
+                    "image_bytes": image_bytes,
+                    "byte_length": len(image_bytes),
+                    "source_checksum": hashlib.sha256(image_bytes).hexdigest(),
+                }
+            )
+    return rows
 
 
 def materialize_zip_images_and_metadata(

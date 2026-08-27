@@ -42,11 +42,11 @@ def build_layout(dataset_config: dict) -> dict:
         },
         "bronze_paths": {
             "root": join_storage_path(storage_root, bronze_prefix),
-            "images": join_storage_path(storage_root, f"{bronze_prefix}/images"),
             "metadata": join_storage_path(storage_root, f"{bronze_prefix}/metadata"),
         },
         "bronze_tables": {
             "source_metadata": f"bronze.{dataset_key}_source_metadata",
+            "image_blobs": f"bronze.{dataset_key}_image_blobs",
             "ingestion_runs": "bronze.ingestion_runs",
         },
         "silver_paths": None
