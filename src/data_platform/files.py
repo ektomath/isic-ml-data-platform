@@ -7,7 +7,7 @@ import shutil
 import tarfile
 import zipfile
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Iterator
 
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png"}
 
@@ -92,7 +92,15 @@ def build_image_blob_rows(
     source_archive_uri: str | None = None,
 ) -> list[dict]:
     """Build Spark-ready binary image rows directly from a local zip archive."""
-    rows = []
+    return list(iter_image_blob_rows(archive_path, source_split, source_archive_uri))
+
+
+def iter_image_blob_rows(
+    archive_path: Path,
+    source_split: str,
+    source_archive_uri: str | None = None,
+) -> Iterator[dict]:
+    """Yield Spark-ready binary image rows directly from a local zip archive."""
     with zipfile.ZipFile(archive_path) as handle:
         for member in handle.infolist():
             if member.is_dir():
@@ -101,18 +109,15 @@ def build_image_blob_rows(
             if not is_image_file(member_path):
                 continue
             image_bytes = handle.read(member)
-            rows.append(
-                {
-                    "image_id": member_path.stem,
-                    "source_split": source_split,
-                    "archive_member_path": member_path.as_posix(),
-                    "source_archive_uri": source_archive_uri,
-                    "image_bytes": image_bytes,
-                    "byte_length": len(image_bytes),
-                    "source_checksum": hashlib.sha256(image_bytes).hexdigest(),
-                }
-            )
-    return rows
+            yield {
+                "image_id": member_path.stem,
+                "source_split": source_split,
+                "archive_member_path": member_path.as_posix(),
+                "source_archive_uri": source_archive_uri,
+                "image_bytes": image_bytes,
+                "byte_length": len(image_bytes),
+                "source_checksum": hashlib.sha256(image_bytes).hexdigest(),
+            }
 
 
 def materialize_zip_images_and_metadata(
