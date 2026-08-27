@@ -10,7 +10,7 @@ An Azure and Databricks-based ISIC 2019 data platform that turns raw images and 
 - `src/data_platform/setup.py`: shared dataset layout helpers
 - `config/`: versioned pipeline, preprocessing, and shared storage-root settings
 - `tests/`: fixture-backed checks that do not require the full ISIC dataset
-- `docs/`: architecture, data contract, and project checklist
+- `docs/`: architecture, data contract, project checklist, and lessons learned
 - `AGENT.md`: canonical repo-local agent instructions and working context
 - `notebooks/`: setup, data-quality, and results notebooks
 
