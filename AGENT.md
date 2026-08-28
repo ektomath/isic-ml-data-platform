@@ -43,7 +43,7 @@ Ask the agent to reread this file after long gaps, after conversation compaction
 
 - `build_layout(dataset_config)`
 - `load_dataset_config(path)`
-- `data_platform.files` helpers for archive staging, image blob rows, archive extraction, image detection, file listing, and checksums
+- `data_platform.files` helpers for archive staging, image blob rows (with embedded checksums), archive extraction, and image detection
 
 ## Bronze contract
 
@@ -68,7 +68,7 @@ Ask the agent to reread this file after long gaps, after conversation compaction
 - Keep shared helpers in `src/data_platform/setup.py`
 - Keep shared tables in `00_setup_storage.ipynb`
 - Keep dataset-specific DDL in the dataset setup notebook, not in shared code
-- Create the shared landing folder and medallion root folders in `00_setup_storage.ipynb`
+- Create the shared landing folder in `00_setup_storage.ipynb`; do not pre-create medallion-layer folders there — dataset setup notebooks create their own folders on demand via `build_layout`
 - Keep dataset-specific folder paths in the dataset Bronze notebook
 
 ## Guardrails

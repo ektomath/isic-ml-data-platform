@@ -1,6 +1,6 @@
 # Lessons Learned
 
-This document tracks concrete some concrete lessons I have learned form this project
+This document tracks some concrete lessons I have learned from this project.
 
 ## Cloud storage costs
 

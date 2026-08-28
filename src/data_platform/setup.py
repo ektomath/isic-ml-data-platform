@@ -23,6 +23,28 @@ def join_storage_path(storage_root: str, relative_path: str) -> str:
     return f"{storage_root.rstrip('/')}/{relative_path.lstrip('/')}"
 
 
+def resolve_archive_paths(archives: list[dict], landing_paths: dict, bronze_paths: dict) -> list[dict]:
+    """Resolve per-archive landing and Bronze metadata paths from dataset archive config.
+
+    `archive_local_path` and `metadata_local_root` are `Path` because they are
+    handed to plain-Python file I/O in `data_platform.files` (Unity Catalog
+    Volume paths are directly readable on the driver's local filesystem);
+    every other path stays a plain string for use with `dbutils.fs` and
+    `spark.read`.
+    """
+    resolved = []
+    for archive in archives:
+        archive = dict(archive)
+        source_split = archive["source_split"]
+        archive["archive_dbfs_path"] = join_storage_path(landing_paths["dataset_archive"], archive["archive_filename"])
+        archive["archive_local_path"] = Path(archive["archive_dbfs_path"])
+        archive["metadata_dir_path"] = join_storage_path(bronze_paths["metadata"], source_split)
+        archive["metadata_local_root"] = Path(archive["metadata_dir_path"])
+        archive["metadata_target_path"] = join_storage_path(archive["metadata_dir_path"], archive["metadata_filename"])
+        resolved.append(archive)
+    return resolved
+
+
 def build_layout(dataset_config: dict) -> dict:
     """Build path and table names from a dataset config."""
     dataset_key = dataset_config["dataset_key"]
