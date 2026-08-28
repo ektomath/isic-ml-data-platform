@@ -87,11 +87,14 @@ One row per image after validation and normalization.
 | `image_format` | string or null | Decoded file format |
 | `validation_status` | string | `accepted` or `rejected` |
 | `validation_reason` | string or null | Reason for rejection |
-| `normalized_label` | string or null | Canonical label value |
+| `malignancy` | string or null | Canonical benign/malignant/indeterminate classification, from this dataset's source label |
+| `specific_diagnosis` | string or null | Most specific diagnosis value available from this dataset's source label |
 | `patient_id` | string or null | Used for leakage grouping |
 | `lesion_id` | string or null | Used for leakage grouping |
 | `group_id` | string or null | Leakage-control group |
 | `validated_at` | timestamp | Validation timestamp |
+
+Label columns grow via `ALTER TABLE ... ADD COLUMNS` as new datasets need new label axes (for example a future dataset's `severity` or `body_site`) — each new column is nullable for every dataset that doesn't populate it. This keeps `image_inventory` a single shared table with real, Unity-Catalog-discoverable columns instead of a per-dataset table or an opaque map column. See `docs/decisions/` for the rationale once recorded.
 
 ### `silver.leakage_groups`
 
@@ -168,6 +171,7 @@ The preprocessing configuration stored with a Gold release must include:
 ## Validation rules
 
 - Every accepted Silver image must have a Bronze image blob reference and source checksum.
+- Every accepted Silver image must have at least one non-null label column (for example `malignancy` or `specific_diagnosis`); rows where every label column is null are rejected instead.
 - Every Gold row must map back to a Silver image_inventory row.
 - Every Gold release must be reproducible from source data, Git commit, and config files.
 - Rejected rows must preserve enough context to explain why the record was excluded.

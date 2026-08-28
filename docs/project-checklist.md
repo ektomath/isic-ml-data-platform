@@ -5,10 +5,8 @@ Status key: `🟩` done, `🟨` in progress, `⬜` not started
 ## Foundation
 
 - 🟩 Define the repository structure
-- 🟩 Pin the local Python version
 - 🟩 Set up `uv` for dependency management
-- 🟩 Intentionally leave the source code unlicensed for showcase use
-- 🟩 Confirm the Databricks workspace and deployment model
+- 🟩 Create notebooks for setting up storage and other resources
 
 ## Bronze
 
@@ -23,11 +21,13 @@ Verified end-to-end on Databricks with the real ISIC 2019 train/test archives. R
 
 ## Silver
 
-- ⬜ Build the canonical image inventory
-- ⬜ Validate image readability and dimensions
-- ⬜ Normalize metadata and labels
-- ⬜ Create leakage-control groups
-- ⬜ Write rejected-record outputs
+- 🟨 Build the canonical image inventory
+- 🟨 Validate image readability and dimensions
+- 🟨 Normalize metadata and labels
+- 🟨 Create leakage-control groups
+- 🟨 Write rejected-record outputs
+
+Implementation-complete but not yet run: `notebooks/isic_2019/20_silver_validate.ipynb`, `data_platform.datasets.isic_2019.normalize_labels`, and `data_platform.validate.decode_image` are written and covered by local unit tests, but the notebook itself hasn't been run against real Bronze data on Databricks yet. Mark these done once that run succeeds and the accepted/rejected/group counts look right — same standard applied to Bronze. See `docs/decisions/003-silver-label-columns-not-map.md` for the label schema design.
 
 ## Gold
 
@@ -45,7 +45,7 @@ Verified end-to-end on Databricks with the real ISIC 2019 train/test archives. R
 
 ## Automation
 
-- 🟨 Add fixture-backed tests (`data_platform.files` covered; `ingest`/`validate`/`publish` still placeholders)
+- 🟨 Add fixture-backed tests (`data_platform.files`, `data_platform.validate`, `data_platform.datasets.isic_2019` covered; `ingest`/`publish` still placeholders)
 - ⬜ Wire GitHub Actions CI
 - ⬜ Add notebook summaries for data quality and results
 - ⬜ Add Databricks job deployment configuration when ready

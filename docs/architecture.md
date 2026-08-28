@@ -19,16 +19,13 @@ Two Unity Catalog volumes are used for file storage:
 /Volumes/derm_showcase_project/bronze/files/
   isic_2019/
     metadata/
-  silver/isic_2019/
-    image_inventory/
-    labels/
-    leakage_groups/
-    rejected_records/
   gold/classification/v1/
     manifest.parquet
     preprocessing.yaml
     dataset_card.md
 ```
+
+Silver (`silver.image_inventory`, `silver.leakage_groups`, `silver.rejected_records`) is table-only — Delta managed tables, no Volume folders — so it does not appear in this file layout.
 
 ### Layer responsibilities
 
@@ -55,7 +52,6 @@ Catalog: derm_showcase_project
   Schema: silver
     Tables:
       image_inventory
-      labels
       leakage_groups
       rejected_records
   Schema: gold
