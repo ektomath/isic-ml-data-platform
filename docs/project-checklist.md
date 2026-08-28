@@ -13,11 +13,13 @@ Status key: `🟩` done, `🟨` in progress, `⬜` not started
 ## Bronze
 
 - 🟩 Define Bronze storage paths
-- ⬜ Ingest ISIC 2019 metadata
-- ⬜ Ingest ISIC 2019 labels
-- ⬜ Copy source JPEGs into Bronze
-- ⬜ Record ingestion runs and checksums
-- ⬜ Create general helper functions that load dataset config files and then create schemas and folders from them
+- 🟩 Create general helper functions that load dataset config files and then create schemas and folders from them
+- 🟩 Save images as blob rows in `bronze.isic_2019_image_blobs`
+- 🟩 Ingest ISIC 2019 metadata (includes diagnosis labels from `metadata.csv`)
+- 🟩 Record ingestion runs and checksums
+- ⬜ Add secondary dataset
+
+Verified end-to-end on Databricks with the real ISIC 2019 train/test archives. Rerun/merge/dedup behavior is covered by unit tests against fixture archives (`tests/test_files.py`) and by code review, but has not been re-verified against a second real-data run — re-running Bronze ingestion against the real archives is expensive (see `docs/lessons-learned.md`). See Automation section for a follow-up item to cover this with mock data instead.
 
 ## Silver
 
@@ -43,10 +45,12 @@ Status key: `🟩` done, `🟨` in progress, `⬜` not started
 
 ## Automation
 
-- ⬜ Add fixture-backed tests
+- 🟨 Add fixture-backed tests (`data_platform.files` covered; `ingest`/`validate`/`publish` still placeholders)
 - ⬜ Wire GitHub Actions CI
 - ⬜ Add notebook summaries for data quality and results
 - ⬜ Add Databricks job deployment configuration when ready
+- ⬜ Add a mock-data test for Bronze rerun behavior (merge/dedup/staging reuse on a second run), so this can be verified without re-running against real, costly ISIC archives — not urgent, defer until Silver/Gold work settles
+- ⬜ Orchestrate pipeline stages as an automated data pipeline (e.g. Databricks Workflows/Jobs) instead of manual notebook runs, so Bronze/Silver/Gold can run and chain automatically
 
 ## Release
 

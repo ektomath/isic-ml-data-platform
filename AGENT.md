@@ -1,6 +1,6 @@
 # AGENT
 
-Last updated: 2026-08-27
+Last updated: 2026-08-28
 
 This is the canonical repo-local instruction file for project working state and conventions.
 Ask the agent to reread this file after long gaps, after conversation compaction, or when project conventions change.
@@ -12,8 +12,9 @@ Ask the agent to reread this file after long gaps, after conversation compaction
 ## Current focus
 
 - Notebook-first Databricks workflow
-- Shared medallion setup plus end-to-end Bronze ingestion for ISIC 2019
+- Bronze is done (shared medallion setup plus end-to-end ISIC 2019 ingestion, verified on real data)
 - Shared setup code in `src/data_platform/setup.py`
+- Starting Silver next
 
 ## Repository shape
 
@@ -79,8 +80,9 @@ Ask the agent to reread this file after long gaps, after conversation compaction
 
 ## Current next step
 
-- Run the end-to-end Bronze ingestion notebook in Databricks
-- Verify rerun behavior and inspect the landed archive, image blob table, metadata files, and Bronze tables
+- Bronze is implementation-complete and verified: the end-to-end ingestion notebook has been run against the real ISIC 2019 train/test archives on Databricks.
+- Rerun/merge/dedup behavior is covered by unit tests against fixture archives (`tests/test_files.py`), not by a second real-data run — re-running Bronze against the real archives is expensive, so this is deferred. A mock-data rerun test is a future automation item, not the current priority.
+- Next up: start Silver (image inventory, validation, label normalization, leakage-control groups).
 
 ## Update rule
 
