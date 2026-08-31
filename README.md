@@ -7,12 +7,12 @@ An Azure and Databricks-based ISIC 2019 data platform that turns raw images and 
 ## What this repository contains
 
 - `src/`: pipeline implementation for ingest, validate, publish, and train
-- `src/data_platform/setup.py`: shared dataset layout helpers
+- `src/data_platform/`: shared, dataset-agnostic helpers — `files.py` (filesystem/archive handling), `layout.py` (dataset layout/config), `validate.py` (image validation), `spark_io.py` (Bronze/Silver Spark pipeline functions), `datasets/` (per-dataset label-mapping logic, e.g. `datasets/isic_2019.py`)
 - `config/`: versioned pipeline, preprocessing, and shared storage-root settings
 - `tests/`: fixture-backed checks that do not require the full ISIC dataset
-- `docs/`: architecture, data contract, project checklist, and lessons learned
+- `docs/`: architecture, data contract, Silver validation rules, ADRs (`docs/decisions/`), project checklist, and lessons learned
 - `AGENT.md`: canonical repo-local agent instructions and working context
-- `notebooks/`: setup, data-quality, and results notebooks
+- `notebooks/`: Databricks setup, Bronze ingestion, and Silver validation notebooks
 
 ## Architecture
 
@@ -69,10 +69,4 @@ In general my workflow is to generate smaller sections of code in chunks rather 
 - `notebooks/isic_2019/05_setup_tables_and_folders.ipynb`: ISIC 2019 Bronze/Silver/Gold table and volume folder setup
 - `notebooks/isic_2019/10_bronze_ingest.ipynb`: end-to-end Bronze ingestion for ISIC 2019
 - `notebooks/isic_2019/20_silver_validate.ipynb`: label normalization, image validation, and leakage-control grouping for ISIC 2019
-- `notebooks/30_data_quality_summary.ipynb`: data-quality exploration
-- `notebooks/40_baseline_results.ipynb`: baseline model results
 
-
-## Licence
-
--

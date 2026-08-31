@@ -79,7 +79,8 @@ One row per image after validation and normalization.
 
 | Field | Type | Notes |
 |---|---|---|
-| `image_id` | string | Stable ISIC identifier |
+| `dataset_key` | string | Which dataset this row belongs to (`config/datasets/<dataset>.yaml`'s `dataset_key`, e.g. `isic_2019`) — this table is shared across every dataset, so this is what lets you segment or compare across them without parsing `bronze_uri` |
+| `image_id` | string | Stable identifier from the source dataset. Unique together with `dataset_key`, not guaranteed globally unique on its own |
 | `bronze_uri` | string | Bronze image blob row reference |
 | `source_checksum` | string | SHA-256 copied from Bronze |
 | `image_width` | integer or null | Decoded width |
@@ -94,7 +95,9 @@ One row per image after validation and normalization.
 | `group_id` | string or null | Leakage-control group |
 | `validated_at` | timestamp | Validation timestamp |
 
-Label columns grow via `ALTER TABLE ... ADD COLUMNS` as new datasets need new label axes (for example a future dataset's `severity` or `body_site`) — each new column is nullable for every dataset that doesn't populate it. This keeps `image_inventory` a single shared table with real, Unity-Catalog-discoverable columns instead of a per-dataset table or an opaque map column. See `docs/decisions/` for the rationale once recorded.
+`MERGE INTO` is keyed on (`dataset_key`, `image_id`) together, not `image_id` alone.
+
+Label columns grow via `ALTER TABLE ... ADD COLUMNS` as new datasets need new label axes (for example a future dataset's `severity` or `body_site`) — each new column is nullable for every dataset that doesn't populate it. This keeps `image_inventory` a single shared table with real, Unity-Catalog-discoverable columns instead of a per-dataset table or an opaque map column. See `docs/decisions/003-silver-label-columns-not-map.md` for the rationale. Image validation criteria (e.g. dimension bounds) can also vary by dataset — see `docs/silver_validation_rules.md`.
 
 ### `silver.leakage_groups`
 
@@ -102,10 +105,13 @@ Grouping table used to prevent patient or lesion leakage across dataset splits.
 
 | Field | Type | Notes |
 |---|---|---|
-| `group_id` | string | Stable group identifier |
-| `group_type` | string | Example: `patient`, `lesion`, `duplicate` |
+| `dataset_key` | string | Which dataset this group belongs to; grouping is scoped per dataset (a `patient_id` collision between two different datasets should never merge their images into one group) |
+| `group_id` | string | Stable group identifier, embeds `dataset_key` so it's globally unique across datasets even if two datasets happen to reuse the same lesion/patient/image ID values |
+| `group_type` | string | Example: `patient`, `lesion`, `duplicate`, `singleton` |
 | `group_source` | string | Source of the grouping rule |
 | `image_count` | integer | Number of images in the group |
+
+`MERGE INTO` is keyed on (`dataset_key`, `group_id`) together.
 
 ### `silver.rejected_records`
 
@@ -113,10 +119,13 @@ Rejected images and records with validation failures.
 
 | Field | Type | Notes |
 |---|---|---|
-| `image_id` | string | Stable ISIC identifier |
+| `dataset_key` | string | Which dataset this rejection belongs to; see `silver.image_inventory.dataset_key` |
+| `image_id` | string | Stable identifier from the source dataset. Unique together with `dataset_key`, not guaranteed globally unique on its own |
 | `bronze_uri` | string | Original Bronze image blob row reference |
 | `rejection_reason` | string | Human-readable failure reason |
 | `rejected_at` | timestamp | Timestamp of rejection |
+
+`MERGE INTO` is keyed on (`dataset_key`, `image_id`) together, not `image_id` alone.
 
 ## Gold contracts
 

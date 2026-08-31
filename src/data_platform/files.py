@@ -87,3 +87,50 @@ def iter_image_blob_rows(
             "byte_length": len(image_bytes),
             "source_checksum": hashlib.sha256(image_bytes).hexdigest(),
         }
+
+
+def check_archives_exist(archives: list[dict]) -> None:
+    """Raise FileNotFoundError if any archive's local landing path is missing.
+
+    Assumes archive-based ingestion (each archive dict has `archive_local_path`/
+    `archive_dbfs_path`, e.g. from `data_platform.layout.resolve_archive_paths`) —
+    a dataset ingested from an API or another non-archive source has nothing to
+    preflight here and doesn't need this function.
+    """
+    for archive in archives:
+        if not archive["archive_local_path"].exists():
+            raise FileNotFoundError(f"Missing archive: {archive['archive_dbfs_path']}")
+    print("All required source archives are present.")
+
+
+def stage_archives_and_extract_metadata(
+    archives: list[dict], local_stage_root: Path, overwrite: bool = False
+) -> list[dict]:
+    """Stage each archive locally and extract its single metadata file, setting
+    `staged_archive_path`/`metadata_target_path` on each archive dict. Returns the
+    same (mutated) archives list.
+
+    Assumes archive-based ingestion where each archive has exactly one metadata
+    file matching `metadata_filename` — a dataset ingested from an API or shipping
+    metadata some other way needs its own loader, not this function.
+    """
+    for archive in archives:
+        archive["staged_archive_path"] = stage_archive_locally(
+            archive_path=archive["archive_local_path"],
+            local_root=local_stage_root,
+            overwrite=overwrite,
+        )
+        extracted_metadata_files = extract_zip_members(
+            archive_path=archive["staged_archive_path"],
+            destination_root=archive["metadata_local_root"],
+            predicate=lambda path, metadata_filename=archive["metadata_filename"]: path.name == metadata_filename,
+        )
+        if len(extracted_metadata_files) != 1:
+            raise RuntimeError(
+                f"Expected one {archive['metadata_filename']} in {archive['archive_filename']}, "
+                f"extracted {len(extracted_metadata_files)}"
+            )
+        archive["metadata_target_path"] = str(extracted_metadata_files[0])
+        print(f"Staged archive locally: {archive['staged_archive_path']}")
+        print(f"Copied metadata file into Bronze metadata: {archive['metadata_target_path']}")
+    return archives
