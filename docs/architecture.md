@@ -4,7 +4,7 @@ This project uses a Bronze / Silver / Gold medallion layout on Databricks Unity 
 
 ## System overview
 
-![ISIC platform architecture](assets/architecture.png)
+![ISIC platform architecture](assets/architecture.svg)
 
 The design keeps the original image bytes in Bronze and uses Silver and Gold primarily for tabular outputs, manifests, and quality records that reference the Bronze assets.
 

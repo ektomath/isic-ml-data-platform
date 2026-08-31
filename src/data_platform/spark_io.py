@@ -10,6 +10,15 @@ Organized in three sections, marked below: shared low-level plumbing used by bot
 layers, the Bronze pipeline, and the Silver pipeline. If this file grows much
 further (e.g. once Gold adds its own functions), split it into a `spark_io/`
 package along the same three-way line instead of letting one file keep growing.
+
+Never call `.cache()`/`.persist()`/`.unpersist()` anywhere in this module (or in
+any notebook cell). Databricks serverless compute does not support them —
+`DataFrame.cache()` triggers `[NOT_SUPPORTED_WITH_SERVERLESS] PERSIST TABLE is
+not supported on serverless compute`, so it fails at runtime rather than just
+being a missed optimization. Where a DataFrame is genuinely expensive (image
+bytes, a `mapInPandas` decode) and feeds more than one downstream action, use
+`materialize()` below instead — a real write-then-read round trip through a
+scratch Delta table, which is supported everywhere including serverless.
 """
 
 from __future__ import annotations
@@ -56,6 +65,23 @@ def bronze_image_uri(table_name: str, source_split, image_id):
     return F.concat(F.lit(f"table:{table_name}/"), source_split, F.lit("/"), image_id)
 
 
+def _scratch_table(silver_tables: dict, name: str) -> str:
+    """Build a scratch table name in the same catalog.schema as the Silver tables.
+    Overwritten on every run, so nothing here is meant to persist between runs."""
+    schema = silver_tables["image_inventory"].rsplit(".", 1)[0]
+    return f"{schema}._scratch_{name}"
+
+
+def materialize(spark, df, table_name: str):
+    """Write df to table_name and read it back — the serverless-safe substitute for
+    .cache()/.persist() (see this module's docstring). Use this only for a
+    DataFrame that's both expensive to compute and consumed by more than one
+    downstream action; a cheap or single-consumer DataFrame doesn't need it.
+    """
+    df.write.mode("overwrite").option("overwriteSchema", "true").saveAsTable(table_name)
+    return spark.table(table_name)
+
+
 def reject_rows(
     spark,
     df,
@@ -71,8 +97,8 @@ def reject_rows(
     carry through a per-row reason already present in df). `dataset_key` identifies
     which dataset these rejections belong to on the shared, cross-dataset
     rejected_records table (matched together with image_id, since image_id alone
-    isn't guaranteed unique across datasets). Returns the cached, already-written
-    rejection DataFrame; prints its row count if `description` is given.
+    isn't guaranteed unique across datasets). Returns the already-written rejection
+    DataFrame; prints its row count if `description` is given.
     """
     rejected_df = df.select(
         F.lit(dataset_key).alias("dataset_key"),
@@ -80,7 +106,7 @@ def reject_rows(
         F.col(bronze_uri_col).alias("bronze_uri"),
         reason.alias("rejection_reason"),
         F.current_timestamp().alias("rejected_at"),
-    ).cache()
+    )
     merge_into(spark, rejected_df, target_table, ["dataset_key", "image_id"])
     if description:
         print(f"{description}: {rejected_df.count()}")
@@ -366,13 +392,13 @@ def apply_label_normalization(
     labeled_df = source_metadata_df.withColumn("labels", normalize_fn_udf(*[F.col(c) for c in input_columns]))
     for label_column in label_columns:
         labeled_df = labeled_df.withColumn(label_column, F.col("labels")[label_column])
-    labeled_df = labeled_df.drop("labels").cache()
+    labeled_df = labeled_df.drop("labels")
 
     is_label_valid = F.lit(False)
     for label_column in label_columns:
         is_label_valid = is_label_valid | F.col(label_column).isNotNull()
 
-    label_valid_df = labeled_df.where(is_label_valid).cache()
+    label_valid_df = labeled_df.where(is_label_valid)
     unlabeled_df = labeled_df.where(~is_label_valid)
 
     reject_rows(
@@ -386,10 +412,6 @@ def apply_label_normalization(
     )
 
     print(f"Rows with at least one resolvable label: {label_valid_df.count()}")
-
-    # labeled_df's only consumers (label_valid_df, unlabeled_df) have both been
-    # materialized above; label_valid_df itself stays cached for its own downstream use.
-    labeled_df.unpersist()
 
     return label_valid_df
 
@@ -414,7 +436,11 @@ def validate_images(
     (see docs/silver_validation_rules.md).
     """
     image_blobs_df = spark.table(bronze_tables["image_blobs"]).select("image_id", "source_split", "image_bytes")
-    label_valid_with_bytes_df = label_valid_df.join(image_blobs_df, on=["image_id", "source_split"], how="left").cache()
+    label_valid_with_bytes_df = materialize(
+        spark,
+        label_valid_df.join(image_blobs_df, on=["image_id", "source_split"], how="left"),
+        _scratch_table(silver_tables, "label_valid_with_bytes"),
+    )
 
     missing_blob_df = label_valid_with_bytes_df.where(F.col("image_bytes").isNull())
     matched_with_bytes_df = label_valid_with_bytes_df.where(F.col("image_bytes").isNotNull())
@@ -430,11 +456,12 @@ def validate_images(
     )
 
     decode_fn = functools.partial(decode_batch, min_dimension=min_dimension, max_dimension=max_dimension)
-    decoded_df = (
+    decoded_df = materialize(
+        spark,
         matched_with_bytes_df
         .select("image_id", "source_split", F.col(bronze_uri_col).alias("bronze_uri"), "image_bytes")
-        .mapInPandas(decode_fn, schema=DECODE_OUTPUT_SCHEMA)
-        .cache()
+        .mapInPandas(decode_fn, schema=DECODE_OUTPUT_SCHEMA),
+        _scratch_table(silver_tables, "decoded_images"),
     )
 
     image_invalid_df = decoded_df.where(~F.col("valid"))
@@ -451,11 +478,6 @@ def validate_images(
 
     print(f"Candidate images decoded: {decoded_df.count()}")
     print(f"Images passing validation: {image_valid_df.count()}")
-
-    # label_valid_with_bytes_df's consumers (missing_blob_df, and matched_with_bytes_df
-    # via decoded_df, both above) are already materialized; decoded_df stays cached since
-    # image_valid_df (returned) is still derived from it downstream.
-    label_valid_with_bytes_df.unpersist()
 
     return image_valid_df
 
@@ -487,7 +509,6 @@ def build_accepted_rows(label_valid_df, image_valid_df, label_columns: list[str]
             *[F.col(c) for c in label_columns],
             *identity_columns,
         )
-        .cache()
     )
 
 
@@ -541,7 +562,6 @@ def assign_leakage_groups_and_write_inventory(
             F.concat(F.col("dataset_key"), F.lit(":"), F.col("group_type"), F.lit(":"), F.col("group_key_value")),
         )
         .drop("group_key_value")
-        .cache()
     )
 
     leakage_groups_df = grouped_df.groupBy("dataset_key", "group_id", "group_type", "group_source").agg(
