@@ -15,7 +15,7 @@ Status key: `🟩` done, `🟨` in progress, `⬜` not started
 - 🟩 Save images as blob rows in `bronze.isic_2019_image_blobs`
 - 🟩 Ingest ISIC 2019 metadata (includes diagnosis labels from `metadata.csv`)
 - 🟩 Record ingestion runs and checksums
-- ⬜ Add secondary dataset
+- 🟨 Add secondary dataset — MILK10k (ISIC Archive), single release with no train/test split. Config skeleton at `config/datasets/milk10k.yaml` (placeholders for source_version/archive_filename/metadata_filename — TODO once download finishes). Blocked on download/extraction completing so the real metadata columns and archive layout can be inspected before writing `data_platform.datasets.milk10k.normalize_labels`, Bronze DDL, and the dataset's notebooks — see `AGENT.md`.
 
 Verified end-to-end on Databricks with the real ISIC 2019 train/test archives. Rerun/merge/dedup behavior is covered by unit tests against fixture archives (`tests/test_files.py`) and by code review, but has not been re-verified against a second real-data run — re-running Bronze ingestion against the real archives is expensive (see `docs/lessons-learned.md`). See Automation section for a follow-up item to cover this with mock data instead.
 
