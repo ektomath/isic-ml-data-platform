@@ -161,22 +161,52 @@ Rejected images and records with validation failures.
 
 ## Gold contracts
 
-### `gold.classification_manifest`
+### `gold.manifest_rows`
 
-One row per image in the training-ready dataset.
+One row per image in a training-ready release. Shared across datasets (like
+every Silver table) but versioned by `dataset_version` rather than
+dataset-prefixed — more than one release can coexist in this table (e.g.
+`sample-v1` alongside a later full-scale `v1`), and the same `(dataset_key,
+image_id)` can legitimately appear under several different `dataset_version`s
+(each manifest is an independent, self-contained selection — nothing requires
+an image's split to be consistent across manifests).
 
 | Field | Type | Notes |
 |---|---|---|
-| `dataset_version` | string | Version tag such as `v1` |
-| `image_id` | string | Stable ISIC identifier |
+| `dataset_version` | string | Release tag, e.g. `sample-v1` or `v1` |
+| `dataset_key` | string | Which source dataset this row came from — `image_id` is only unique together with `dataset_key`, not globally, same convention as `silver.image_inventory` |
+| `image_id` | string | Stable identifier from the source dataset |
 | `bronze_uri` | string | Immutable Bronze image blob row reference |
 | `source_checksum` | string | SHA-256 from Bronze |
-| `label` | string | Final normalized training label |
-| `group_id` | string | Leakage-control group |
+| `label` | string | Final normalized training label for this release — a direct passthrough of a Silver label column (e.g. `malignancy`) for `sample-v1`; a future release may source `label` from a different column (e.g. a cross-dataset `specific_diagnosis` crosswalk — not designed yet, see `docs/decisions/003-silver-label-columns-not-map.md` for why that's deliberately deferred) |
+| `group_id` | string | Leakage-control group, from `silver.leakage_groups` — no `group_id` is ever split across `split` values within one `dataset_version`. Note this only guards against leakage *within* one dataset's own groups — a duplicate image across two different `dataset_key`s in the same manifest is not currently detected, see `docs/project-checklist.md`'s Gold section |
 | `split` | string | `train`, `validation`, or `test` |
-| `split_seed` | integer | Seed used to generate the split |
-| `preprocessing_version` | string | Version of preprocessing config |
-| `manifest_row_hash` | string | Optional row-level integrity hash |
+| `sample_seed` | integer | Seed used to select which images are in this manifest at all — deliberately separate from `split_seed`, so a later release can reuse the exact same image pool (e.g. the same selection under a different `preprocessing_version`) while only `split_seed` differs, or vice versa |
+| `split_seed` | integer | Seed used to divide the selected images into `train`/`validation`/`test` |
+| `preprocessing_version` | string | Version of preprocessing config (`config/preprocessing.yaml`) used for this release |
+| `manifest_row_hash` | string | `sha2`-256 over `dataset_key`\|`image_id`\|`label`\|`split`\|`source_checksum`, for row-level integrity checking |
+| `created_at` | timestamp | When this row was (last) written — refreshed on rerun, same convention as `silver.image_inventory.validated_at`; not a strict immutable-creation guarantee |
+
+`MERGE INTO` is keyed on (`dataset_version`, `dataset_key`, `image_id`)
+together — `dataset_version` is in the key, unlike Silver's `(dataset_key,
+image_id)`, because this table holds more than one release at once; without
+it, writing a second release would collide with the first.
+
+### `gold.manifest_registry`
+
+A view over `gold.manifest_rows`, one row per `dataset_version`, summarizing
+which datasets/labels/splits a manifest contains (dataset keys, image and
+per-split counts, distinct label values, preprocessing versions, sample/split
+seeds, first/last write time). Not a table — everything in it is fully derivable from
+`manifest_rows` by aggregation, so it can never drift out of sync and needs no
+separate write path. This is the answer to "which manifests do I have, and
+what's in each one" — query it instead of hand-writing the aggregation.
+
+**Deferred for the `sample-v1` release** (built for cheap Gold-pipeline
+iteration, not a real release): `gold.dataset_card` and the `manifest.parquet`
+export below are not generated. Both are additive and cheap to add once
+there's a real consumer — a dataset card documenting an actual released
+artifact, Parquet for a non-Spark training consumer that doesn't exist yet.
 
 ### `gold.dataset_card`
 

@@ -1,0 +1,17 @@
+# A small sample release for iterating on the Gold pipeline cheaply -- not the
+# full-scale release. See docs/project-checklist.md's Gold section.
+#
+# sample_seed and split_seed are deliberately separate: sample_seed controls
+# which images end up in this manifest at all; split_seed controls how the
+# selected images are divided into train/validation/test. Keep sample_seed
+# fixed across manifests meant to be directly comparable (e.g. the same image
+# selection under a different preprocessing_version) even if split_seed or
+# other fields change.
+dataset_version: sample-v1
+dataset_keys: [isic_2019, milk10k]
+label_column: malignancy
+sample_size_per_dataset: 100
+sample_seed: 42
+split_ratios: [0.7, 0.15, 0.15]
+split_seed: 42
+preprocessing_version: sample-v1

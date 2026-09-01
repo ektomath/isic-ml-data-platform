@@ -32,10 +32,11 @@ Verified end-to-end on Databricks: `notebooks/isic_2019/20_silver_validate.ipynb
 
 ## Gold
 
-- ⬜ Publish the versioned classification manifest
-- ⬜ Freeze preprocessing configuration
-- ⬜ Generate the dataset card
-- ⬜ Record manifest checksum and version metadata
+- 🟨 Publish the versioned classification manifest — `sample-v1` release (~100 images from `isic_2019` and `milk10k` each, `malignancy` label only), defined by `config/gold/manifests/sample-v1.yaml` and built by `notebooks/30_create_gold_manifest.ipynb` (`data_platform.gold`, the Gold pipeline functions in `data_platform.spark_io`), to iterate on the Gold pipeline cheaply, not as the real release. Each manifest is its own config file — same convention as `config/datasets/<dataset>.yaml` — so a new manifest is a new YAML file, not a new notebook. Not yet run against Databricks. The full-scale release (all accepted rows, not a sample) is separate future work.
+- 🟩 Freeze preprocessing configuration — `config/preprocessing.yaml` versioned (`version: sample-v1`), referenced by `gold.manifest_rows.preprocessing_version`. One field short of the full `docs/data_contract.md` spec (framework-specific runtime notes) — deliberately, since no training framework is chosen yet; documented in the file itself, not filled with a placeholder.
+- ⬜ Generate the dataset card — deferred for `sample-v1` (a 200-image iteration sample doesn't need one); build for the full-scale release.
+- 🟨 Record manifest checksum and version metadata — `manifest_row_hash` (per-row) and `dataset_version`/`sample_seed`/`split_seed`/`preprocessing_version` (release-level) are in the schema and populated; `sample_seed` and `split_seed` are deliberately separate columns so two releases can be verified (via `gold.manifest_registry`) to share the same image pool even if their split or preprocessing differs. `manifest.parquet` export (a portability convenience for a non-Spark consumer) is deferred — no such consumer exists yet (`src/ml/train.py` is a stub).
+- ⬜ Detect cross-dataset duplicate images before combining datasets into one manifest — leakage-group assignment is `dataset_key`-scoped by design (`docs/decisions/004-cross-dataset-leakage-not-checked.md`), so if the same real image exists in two onboarded datasets (plausible for ISIC-Archive-family datasets like `isic_2019`/`milk10k`), it gets unrelated `group_id`s in each and could land in different splits (`train` in one dataset's copy, `test` in the other's) when a Gold manifest combines both — real train/test leakage, not just a theoretical risk. `source_checksum` equality across datasets is the sound signal to catch this (unlike `patient_id`/`lesion_id`, which are dataset-issued and unsound to compare across datasets), and would naturally belong in `data_platform.spark_io.build_gold_candidate_groups` — checked only when a manifest actually spans more than one `dataset_key`, since that's the only time it matters. Not built yet; revisit once a manifest actually combines multiple datasets for real.
 
 ## Training
 
@@ -46,7 +47,7 @@ Verified end-to-end on Databricks: `notebooks/isic_2019/20_silver_validate.ipynb
 
 ## Automation
 
-- 🟨 Add fixture-backed tests (`data_platform.files`, `data_platform.validate`, `data_platform.labels` covered; `ingest`/`publish` still placeholders)
+- 🟨 Add fixture-backed tests (`data_platform.files`, `data_platform.validate`, `data_platform.labels`, `data_platform.gold` covered; `ingest`/`publish` still placeholders)
 - ⬜ Review test coverage across the whole codebase and fill gaps for anything important (not just the modules already covered) — a deliberate pass, not incidental coverage from writing feature tests
 - 🟩 Wire GitHub Actions CI
 - ⬜ Add notebook summaries for data quality and results

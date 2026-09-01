@@ -7,12 +7,12 @@ An Azure and Databricks-based ISIC 2019 data platform that turns raw images and 
 ## What this repository contains
 
 - `src/`: pipeline implementation for ingest, validate, publish, and train
-- `src/data_platform/`: shared, dataset-agnostic helpers — `files.py` (filesystem/archive handling), `layout.py` (dataset layout/config), `validate.py` (image validation), `labels.py` (canonical label vocabulary and diagnosis-hierarchy normalization, shared by every onboarded dataset so far), `spark_io.py` (Bronze/Silver Spark pipeline functions), `datasets/` (a landing spot for a *future* dataset whose label logic doesn't fit `labels.py`'s shape — empty until one needs it)
-- `config/`: versioned pipeline, preprocessing, and shared storage-root settings
+- `src/data_platform/`: shared, dataset-agnostic helpers — `files.py` (filesystem/archive handling), `layout.py` (dataset layout/config), `validate.py` (image validation), `labels.py` (canonical label vocabulary and diagnosis-hierarchy normalization, shared by every onboarded dataset so far), `gold.py` (pure-Python Gold sampling and leakage-aware split assignment), `spark_io.py` (Bronze/Silver/Gold Spark pipeline functions), `datasets/` (a landing spot for a *future* dataset whose label logic doesn't fit `labels.py`'s shape — empty until one needs it)
+- `config/`: versioned pipeline, preprocessing, and shared storage-root settings — `config/datasets/<dataset>.yaml` per onboarded dataset, `config/gold/manifests/<name>.yaml` per Gold manifest release
 - `tests/`: fixture-backed checks that do not require the full ISIC dataset
 - `docs/`: architecture, data contract, Silver validation rules, ADRs (`docs/decisions/`), project checklist, and lessons learned
 - `AGENT.md`: canonical repo-local agent instructions and working context
-- `notebooks/`: Databricks setup, Bronze ingestion, and Silver validation notebooks
+- `notebooks/`: Databricks setup, Bronze ingestion, Silver validation, and Gold publishing notebooks
 
 ## Architecture
 
@@ -65,9 +65,10 @@ In general my workflow is to generate smaller sections of code in chunks rather 
 ## Notebook flow
 
 - `notebooks/_setup_env.ipynb`: shared Databricks notebook environment setup for imports
-- `notebooks/00_setup_storage_and_shared_tables.ipynb`: shared medallion schemas, storage conventions, and every shared table (`bronze.ingestion_runs`, all of Silver) — created once here since it's identical regardless of dataset
-- `notebooks/isic_2019/05_setup_tables_and_folders.ipynb`: ISIC 2019 Bronze (and, later, Gold) table and volume folder setup
+- `notebooks/00_setup_storage_and_shared_tables.ipynb`: shared medallion schemas, storage conventions, and every shared table (`bronze.ingestion_runs`, all of Silver, all of Gold) — created once here since it's identical regardless of dataset
+- `notebooks/isic_2019/05_setup_tables_and_folders.ipynb`: ISIC 2019 Bronze table and volume folder setup
 - `notebooks/isic_2019/10_bronze_ingest.ipynb`: end-to-end Bronze ingestion for ISIC 2019
 - `notebooks/isic_2019/20_silver_validate.ipynb`: label normalization, image validation, and leakage-control grouping for ISIC 2019
 - `notebooks/milk10k/05_setup_tables_and_folders.ipynb`, `10_bronze_ingest.ipynb`, `20_silver_validate.ipynb`: the same flow for MILK10k, the second onboarded dataset
+- `notebooks/30_create_gold_manifest.ipynb`: publishes a `gold.manifest_rows` release spanning every included dataset in one run (top-level, not under a dataset folder). Currently a `sample-v1` release (~100 images per dataset, `malignancy` label) built to iterate on the Gold pipeline cheaply, not the full-scale release. `gold.manifest_registry` (a view) gives an overview of every release published so far
 

@@ -14,3 +14,7 @@ archives:
   - source_split: all
     archive_filename: milk10k.zip
     metadata_filename: metadata.csv
+# Raw Bronze diagnosis columns fed to normalize_diagnosis_labels (arity-agnostic,
+# shared with every other dataset) and the shared Silver label columns it produces.
+diagnosis_input_columns: [diagnosis_1, diagnosis_2, diagnosis_3, diagnosis_4]
+label_columns: [malignancy, specific_diagnosis]

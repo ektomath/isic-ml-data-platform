@@ -56,7 +56,9 @@ Catalog: derm_showcase_project
       rejected_records
   Schema: gold
     Tables:
-      classification_manifest
+      manifest_rows
+    Views:
+      manifest_registry
 ```
 
 The catalog holds logical tabular assets. Source archives stay in the landing Volume, but extracted image bytes are written to the Bronze image blob Delta table instead of being materialized as one JPEG object per archive member. Raw metadata files, manifests, and other small file outputs remain in Unity Catalog volume paths.

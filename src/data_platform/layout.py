@@ -98,6 +98,6 @@ def build_layout(dataset_config: dict) -> dict:
         "gold_tables": None
         if gold_prefix is None
         else {
-            "classification_manifest": "gold.classification_manifest",
+            "manifest_rows": "gold.manifest_rows",
         },
     }

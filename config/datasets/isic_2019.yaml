@@ -11,3 +11,7 @@ archives:
   - source_split: test
     archive_filename: ISIC-2019-test-images.zip
     metadata_filename: metadata.csv
+# Raw Bronze diagnosis columns fed to normalize_diagnosis_labels (arity-agnostic,
+# shared with every other dataset) and the shared Silver label columns it produces.
+diagnosis_input_columns: [diagnosis_1, diagnosis_2, diagnosis_3]
+label_columns: [malignancy, specific_diagnosis]

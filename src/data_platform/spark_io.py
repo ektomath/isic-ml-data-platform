@@ -7,10 +7,10 @@ column, table, or value. A dataset's notebook supplies the dataset-specific bits
 label normalization, the resulting label column names, its own
 `normalize_labels`-shaped function) and calls these in sequence.
 
-Organized in three sections, marked below: shared low-level plumbing used by both
-layers, the Bronze pipeline, and the Silver pipeline. If this file grows much
-further (e.g. once Gold adds its own functions), split it into a `spark_io/`
-package along the same three-way line instead of letting one file keep growing.
+Organized in four sections, marked below: shared low-level plumbing used by
+every layer, the Bronze pipeline, the Silver pipeline, and the Gold pipeline.
+If this file grows much further, split it into a `spark_io/` package along the
+same line instead of letting one file keep growing.
 
 Never call `.cache()`/`.persist()`/`.unpersist()` anywhere in this module (or in
 any notebook cell). Databricks serverless compute does not support them —
@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import functools
 
+from pyspark.sql import Window
 from pyspark.sql import functions as F
 from pyspark.sql.types import (
     BinaryType,
@@ -39,7 +40,6 @@ from pyspark.sql.types import (
 )
 
 from data_platform.files import IMAGE_SUFFIXES, count_zip_members_by_suffix, iter_image_blob_rows
-from data_platform.labels import SILVER_LABEL_COLUMN_DDL
 from data_platform.validate import MAX_DIMENSION, MIN_DIMENSION, decode_batch
 
 # ============================================================================
@@ -344,8 +344,10 @@ def print_bronze_outputs(
 # Silver pipeline — reconcile_bronze_records, apply_label_normalization,
 # validate_images, build_accepted_rows, assign_leakage_groups_and_write_inventory,
 # print_silver_outputs, called in that order from a dataset's Silver notebook.
-# ensure_silver_tables is the one exception: it's schema setup, called from a
-# dataset's 05_setup_tables_and_folders.ipynb, not the Silver validate notebook.
+# Silver table DDL itself is not here — it's inline in
+# 00_setup_storage_and_shared_tables.ipynb, alongside bronze.ingestion_runs and
+# gold.manifest_rows, so that notebook shows every shared table it creates
+# directly rather than through a wrapper function.
 # ============================================================================
 
 DECODE_OUTPUT_SCHEMA = StructType(
@@ -373,75 +375,6 @@ GROUP_SOURCE_BY_TYPE = {
     "singleton": "image_id",
 }
 GROUP_SOURCE_MAP = F.create_map(*[F.lit(item) for pair in GROUP_SOURCE_BY_TYPE.items() for item in pair])
-
-
-def ensure_silver_tables(spark) -> None:
-    """Create the shared Silver tables (image_inventory, leakage_groups, rejected_records)
-    if they don't already exist, then add any missing label columns from
-    data_platform.labels.SILVER_LABEL_COLUMN_DDL via a guarded ALTER TABLE (Delta has no
-    ADD COLUMNS IF NOT EXISTS, so the guard is done in Python).
-
-    Idempotent, and safe to call from more than one dataset's 05_setup_tables_and_folders.ipynb
-    — these tables are shared across datasets, not dataset-specific (see
-    docs/decisions/003-silver-label-columns-not-map.md). Unlike
-    apply_label_normalization's controlled_vocabularies check, this has nothing
-    dataset-specific to show inline (it's the same DDL for every dataset, byte for byte),
-    so — unlike the Bronze source-metadata MERGE, which stays hand-written in each
-    dataset's own notebook so the exact column mapping stays visible there — this is
-    shared code, not duplicated per dataset.
-    """
-    spark.sql(
-        """
-        CREATE TABLE IF NOT EXISTS silver.image_inventory (
-          dataset_key STRING,
-          image_id STRING,
-          bronze_uri STRING,
-          source_checksum STRING,
-          image_width INT,
-          image_height INT,
-          image_format STRING,
-          validation_status STRING,
-          validation_reason STRING,
-          patient_id STRING,
-          lesion_id STRING,
-          group_id STRING,
-          validated_at TIMESTAMP
-        )
-        USING DELTA
-        """
-    )
-
-    existing_columns = {field.name for field in spark.table("silver.image_inventory").schema.fields}
-    missing_label_columns = [
-        f"{name} {ddl}" for name, ddl in SILVER_LABEL_COLUMN_DDL.items() if name not in existing_columns
-    ]
-    if missing_label_columns:
-        spark.sql(f"ALTER TABLE silver.image_inventory ADD COLUMNS ({', '.join(missing_label_columns)})")
-
-    spark.sql(
-        """
-        CREATE TABLE IF NOT EXISTS silver.leakage_groups (
-          dataset_key STRING,
-          group_id STRING,
-          group_type STRING,
-          group_source STRING,
-          image_count INT
-        )
-        USING DELTA
-        """
-    )
-    spark.sql(
-        """
-        CREATE TABLE IF NOT EXISTS silver.rejected_records (
-          dataset_key STRING,
-          image_id STRING,
-          bronze_uri STRING,
-          rejection_reason STRING,
-          rejected_at TIMESTAMP
-        )
-        USING DELTA
-        """
-    )
 
 
 def reconcile_bronze_records(spark, bronze_tables: dict, silver_tables: dict, dataset_key: str):
@@ -758,3 +691,159 @@ def print_silver_outputs(
         .groupBy("group_type")
         .agg(F.count("*").alias("num_groups"), F.sum("image_count").alias("total_images"))
     )
+
+
+# ============================================================================
+# Gold pipeline — build_gold_candidate_groups, write_gold_manifest_rows,
+# print_gold_outputs, called in that order from a Gold manifest notebook (e.g.
+# 30_create_gold_manifest.ipynb). gold.manifest_rows's DDL is not here — it's inline
+# in 00_setup_storage_and_shared_tables.ipynb, same reasoning as Silver's
+# tables (that notebook also creates gold.manifest_registry, a view
+# summarizing gold.manifest_rows one row per dataset_version). manifest_rows
+# is one shared, cross-dataset table like Silver's, but versioned by
+# dataset_version rather than partitioned per dataset — more than one release
+# (e.g. "sample-v1" and a later "v1") can coexist in it.
+# ============================================================================
+
+
+def build_gold_candidate_groups(spark, silver_tables: dict, dataset_key: str, label_column: str) -> list[dict]:
+    """Aggregate silver.image_inventory (dataset_key, non-null label_column) joined to
+    silver.leakage_groups into one row per leakage-control group: group_id, image_count,
+    and a representative label.
+
+    The representative label is label_column's value on the lexicographically-first
+    image_id in the group — a deliberate simplification, not a bug: most groups share
+    one label across every image in them, and a small sample manifest doesn't need
+    exact per-image precision here (see data_platform.gold's own docstring for the
+    same discipline applied to sampling/splitting).
+
+    Metadata-only aggregation over the full accepted table for dataset_key (no image
+    bytes, no materialize() needed — this is a cheap groupBy, not a byte-heavy join or
+    a mapInPandas pass), then collected to the driver: one small row per *group*, not
+    per image, so this stays cheap even at tens of thousands of source rows. Returns a
+    plain list of dicts so data_platform.gold's sampling logic never needs Spark.
+    """
+    inventory_df = (
+        spark.table(silver_tables["image_inventory"])
+        .where((F.col("dataset_key") == dataset_key) & F.col(label_column).isNotNull())
+        .select("group_id", "image_id", F.col(label_column).alias("label"))
+    )
+
+    representative_label_df = (
+        inventory_df
+        .withColumn(
+            "row_number",
+            F.row_number().over(Window.partitionBy("group_id").orderBy("image_id")),
+        )
+        .where(F.col("row_number") == 1)
+        .select("group_id", "label")
+    )
+
+    group_sizes_df = inventory_df.groupBy("group_id").agg(F.count("*").alias("image_count"))
+
+    groups_df = group_sizes_df.join(representative_label_df, on="group_id")
+
+    return [row.asDict() for row in groups_df.collect()]
+
+
+def write_gold_manifest_rows(
+    spark,
+    silver_tables: dict,
+    gold_tables: dict,
+    dataset_key: str,
+    label_column: str,
+    split_by_group: dict[str, str],
+    dataset_version: str,
+    sample_seed: int,
+    split_seed: int,
+    preprocessing_version: str,
+) -> None:
+    """Filter silver.image_inventory (dataset_key, non-null label_column) down to only
+    the groups selected in split_by_group, attach each row's split, compute
+    manifest_row_hash, and MERGE into gold.manifest_rows.
+
+    split_by_group is joined in as a small Spark DataFrame rather than a F.when()
+    chain, so this scales the same way regardless of its size. label_column has no
+    default — every caller must say explicitly which Silver column a release's label
+    comes from (matches apply_label_normalization's label_columns/controlled_vocabularies
+    being explicit, never implicit).
+
+    sample_seed and split_seed are recorded as separate columns, not just used
+    internally by data_platform.gold.select_sample_and_splits — so a later query
+    against gold.manifest_registry can verify two manifests really did draw from
+    the same image pool (same sample_seed) even if their split_seed or
+    preprocessing_version differ, rather than having to trust that from outside
+    the data (e.g. by comparing config files by hand).
+
+    created_at is set to the current timestamp on every call, same convention as
+    Silver's validated_at — rerunning this for a (dataset_version, dataset_key,
+    image_id) that already exists refreshes created_at to "last written," not
+    "originally created." gold.manifest_registry (a view over this table) surfaces
+    it as the manifest's creation time for display purposes; it isn't a strict
+    immutable-creation guarantee.
+    """
+    split_rows = [{"group_id": group_id, "split": split} for group_id, split in split_by_group.items()]
+    split_df = spark.createDataFrame(split_rows, schema="group_id STRING, split STRING")
+
+    manifest_df = (
+        spark.table(silver_tables["image_inventory"])
+        .where((F.col("dataset_key") == dataset_key) & F.col(label_column).isNotNull())
+        .join(split_df, on="group_id", how="inner")
+        .select(
+            F.lit(dataset_version).alias("dataset_version"),
+            F.col("dataset_key"),
+            F.col("image_id"),
+            F.col("bronze_uri"),
+            F.col("source_checksum"),
+            F.col(label_column).alias("label"),
+            F.col("group_id"),
+            F.col("split"),
+            F.lit(sample_seed).alias("sample_seed"),
+            F.lit(split_seed).alias("split_seed"),
+            F.lit(preprocessing_version).alias("preprocessing_version"),
+        )
+        .withColumn(
+            "manifest_row_hash",
+            F.sha2(F.concat_ws("|", "dataset_key", "image_id", "label", "split", "source_checksum"), 256),
+        )
+        .withColumn("created_at", F.current_timestamp())
+    )
+
+    merge_into(spark, manifest_df, gold_tables["manifest_rows"], ["dataset_version", "dataset_key", "image_id"])
+
+    print(f"{dataset_key}: manifest rows written for dataset_version={dataset_version!r}: {manifest_df.count()}")
+
+
+def print_gold_outputs(
+    spark, display, gold_tables: dict, dataset_version: str, dataset_keys: list[str], label_column: str
+) -> None:
+    """Print/display gold.manifest_rows summary for one dataset_version: rows per
+    dataset_key, split distribution, label distribution by split, and a real
+    leakage-control invariant check — raises if any group_id spans more than one split
+    within this dataset_version, rather than only describing output like
+    print_silver_outputs does.
+    """
+    manifest_df = (
+        spark.table(gold_tables["manifest_rows"])
+        .where((F.col("dataset_version") == dataset_version) & F.col("dataset_key").isin(dataset_keys))
+    )
+
+    print("Rows per dataset_key:")
+    display(manifest_df.groupBy("dataset_key").count())
+
+    print("Split distribution:")
+    display(manifest_df.groupBy("split").count())
+
+    print(f"{label_column} distribution by split:")
+    display(manifest_df.groupBy("split", "label").count().orderBy("split", F.desc("count")))
+
+    leaking_groups_df = (
+        manifest_df.groupBy("group_id").agg(F.countDistinct("split").alias("num_splits")).where(F.col("num_splits") > 1)
+    )
+    leaking_group_count = leaking_groups_df.count()
+    if leaking_group_count:
+        display(leaking_groups_df)
+        raise ValueError(
+            f"{leaking_group_count} group_id(s) span more than one split within "
+            f"dataset_version={dataset_version!r} — leakage-control invariant violated."
+        )
