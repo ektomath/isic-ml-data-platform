@@ -75,7 +75,9 @@ Run-level metadata for traceability.
 
 ### `silver.image_inventory`
 
-One row per image after validation and normalization.
+One row per **accepted** image after validation and normalization. A rejected
+image never lands here — see `silver.rejected_records` instead, which is the
+only table that carries rejected rows and their reasons.
 
 | Field | Type | Notes |
 |---|---|---|
@@ -86,8 +88,8 @@ One row per image after validation and normalization.
 | `image_width` | integer or null | Decoded width |
 | `image_height` | integer or null | Decoded height |
 | `image_format` | string or null | Decoded file format |
-| `validation_status` | string | `accepted` or `rejected` |
-| `validation_reason` | string or null | Reason for rejection |
+| `validation_status` | string | Always `accepted` in this table — a row only exists here once it's passed every check; there is no `rejected` value in practice |
+| `validation_reason` | string or null | Always `null` in this table (reserved); actual rejection reasons live in `silver.rejected_records.rejection_reason` |
 | `malignancy` | string or null | Canonical benign/malignant/indeterminate classification, from this dataset's source label |
 | `specific_diagnosis` | string or null | Most specific diagnosis value available from this dataset's source label |
 | `patient_id` | string or null | Used for leakage grouping |

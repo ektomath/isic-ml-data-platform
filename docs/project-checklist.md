@@ -21,13 +21,14 @@ Verified end-to-end on Databricks with the real ISIC 2019 train/test archives. R
 
 ## Silver
 
-- 🟨 Build the canonical image inventory
-- 🟨 Validate image readability and dimensions
-- 🟨 Normalize metadata and labels
-- 🟨 Create leakage-control groups
-- 🟨 Write rejected-record outputs
+- 🟩 Build the canonical image inventory
+- 🟩 Validate image readability and dimensions
+- 🟩 Normalize metadata and labels
+- 🟩 Create leakage-control groups
+- 🟩 Write rejected-record outputs
+- ⬜ Standardize label vocabulary across datasets — each dataset's own `normalize_labels` function (e.g. `data_platform.datasets.isic_2019.normalize_labels`) currently invents its own output strings independently. A second dataset describing the same underlying concept differently (e.g. "cancer" or a numeric code instead of "malignant") would silently drift the shared `malignancy`/`specific_diagnosis` columns into inconsistent vocabulary rather than actually being comparable across datasets. Design a canonical vocabulary (or a shared mapping layer) before onboarding a second dataset, so per-dataset normalization functions map onto consistent values instead of each dataset defining its own.
 
-Implementation-complete but not yet run: `notebooks/isic_2019/20_silver_validate.ipynb`, `data_platform.datasets.isic_2019.normalize_labels`, and `data_platform.validate.decode_image` are written and covered by local unit tests, but the notebook itself hasn't been run against real Bronze data on Databricks yet. Mark these done once that run succeeds and the accepted/rejected/group counts look right — same standard applied to Bronze. See `docs/decisions/003-silver-label-columns-not-map.md` for the label schema design.
+Verified end-to-end on Databricks: `notebooks/isic_2019/20_silver_validate.ipynb` ran successfully against real Bronze data on serverless compute, with sane accepted/rejected/leakage-group counts (32,413 accepted, 1,156 rejected for unresolvable label, 16,800 leakage-control groups). Running this also surfaced and fixed a real bug — `.cache()`/`.persist()` throughout `spark_io.py` is unsupported on Databricks serverless compute; see `AGENT.md`'s "Databricks serverless compute" section and `data_platform.spark_io.materialize()`. See `docs/decisions/003-silver-label-columns-not-map.md` for the label schema design.
 
 ## Gold
 
@@ -46,7 +47,7 @@ Implementation-complete but not yet run: `notebooks/isic_2019/20_silver_validate
 ## Automation
 
 - 🟨 Add fixture-backed tests (`data_platform.files`, `data_platform.validate`, `data_platform.datasets.isic_2019` covered; `ingest`/`publish` still placeholders)
-- ⬜ Wire GitHub Actions CI
+- 🟩 Wire GitHub Actions CI
 - ⬜ Add notebook summaries for data quality and results
 - ⬜ Add Databricks job deployment configuration when ready
 - ⬜ Add a mock-data test for Bronze rerun behavior (merge/dedup/staging reuse on a second run), so this can be verified without re-running against real, costly ISIC archives — not urgent, defer until Silver/Gold work settles

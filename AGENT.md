@@ -1,19 +1,19 @@
 # AGENT
 
-Last updated: 2026-08-28 (Silver implementation added)
+Last updated: 2026-08-31 (Silver verified end-to-end on Databricks serverless compute)
 
 This is the canonical repo-local instruction file for project working state and conventions.
 Ask the agent to reread this file after long gaps, after conversation compaction, or when project conventions change.
 
 ## Current branch
 
-- `feature_branch_bronze`
+- `feature_branch_silver`
 
 ## Current focus
 
 - Notebook-first Databricks workflow
 - Bronze is done (shared medallion setup plus end-to-end ISIC 2019 ingestion, verified on real data)
-- Silver is implementation-complete, not yet verified on Databricks (see Current next step)
+- Silver is done (end-to-end ISIC 2019 run verified on Databricks serverless compute, see Current next step)
 - Shared layout/config code in `src/data_platform/layout.py`
 
 ## Repository shape
@@ -114,8 +114,8 @@ All Spark/SQL code in this project must run on Databricks serverless compute —
 
 - Bronze is implementation-complete and verified: the end-to-end ingestion notebook has been run against the real ISIC 2019 train/test archives on Databricks.
 - Rerun/merge/dedup behavior is covered by unit tests against fixture archives (`tests/test_files.py`), not by a second real-data run — re-running Bronze against the real archives is expensive, so this is deferred. A mock-data rerun test is a future automation item, not the current priority.
-- Silver is implementation-complete but not yet run: `notebooks/isic_2019/20_silver_validate.ipynb`, `data_platform.datasets.isic_2019.normalize_labels`, and `data_platform.validate.decode_image` are written and unit-tested locally (`tests/datasets/test_isic_2019.py`, `tests/test_validate.py`), but the notebook itself needs a real run on Databricks against real Bronze data before Silver can be marked done in `docs/project-checklist.md`.
-- Next up: run `20_silver_validate.ipynb` on Databricks, verify accepted/rejected counts and leakage groups look right, then mark Silver checklist items done.
+- Silver is implementation-complete and verified: `notebooks/isic_2019/20_silver_validate.ipynb` has been run end-to-end against real Bronze data on Databricks serverless compute, with sane accepted/rejected/leakage-group counts (32,413 accepted, 1,156 rejected for unresolvable label, 16,800 leakage-control groups — see `docs/project-checklist.md`). This run also surfaced a real bug, now fixed: `.cache()`/`.persist()` is not supported on serverless compute (see "Databricks serverless compute" below).
+- Next up: Bronze's known gap — `write_image_blob_table` writes directly to the production table rather than staging-then-atomically-replacing, so a mid-run failure leaves it partially rewritten (recovery is a full rerun, accepted as a tradeoff for this project's current scale — see `docs/decisions/002-store-bronze-images-as-delta-blobs.md`) — is a documented, accepted risk, not an open task. Otherwise: Gold (publish the classification manifest) is the next unstarted layer, per `docs/project-checklist.md`.
 
 ## Update rule
 

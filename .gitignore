@@ -1,0 +1,17 @@
+.venv/
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+.env
+dist/
+build/
+*.egg-info/
+*.pyc
+mlruns/
+data/
+artifacts/
+.idea/
+docs/assets/*Copy*.svg
+
