@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-_MALIGNANCY_VALUES = ("benign", "malignant", "indeterminate")
+from data_platform.labels import MALIGNANCY_VALUES
 
 
 def _normalize_malignancy(diagnosis_1: str | None) -> str | None:
@@ -12,7 +12,7 @@ def _normalize_malignancy(diagnosis_1: str | None) -> str | None:
     value = diagnosis_1.strip().lower()
     if not value:
         return None
-    for prefix in _MALIGNANCY_VALUES:
+    for prefix in MALIGNANCY_VALUES:
         if value.startswith(prefix):
             return prefix
     return None

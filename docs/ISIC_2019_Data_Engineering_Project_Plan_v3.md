@@ -9,26 +9,18 @@
 
 | Field | Plan |
 |---|---|
-| Primary objective | Ingest, validate, version and publish the 25,331-image ISIC 2019 training set as reusable ML data products. |
+| Primary objective | Ingest, validate, version and publish the ISIC 2019 train + test archives (33,569 images) as reusable ML data products. |
 | MVP finish line | Gold classifier manifest, one reproducible baseline, one workflow, fixture-based CI and a public case study. |
 | Release 2 | Versioned super-resolution pairs and experiments, started only after the showcase MVP is published. |
-| Reference stack | ADLS Gen2 + Python + Delta Silver tables + Parquet Gold manifest + Databricks Jobs/MLflow + local or third-party GPU. |
-| Plan date | 2026-08-18 |
-
-> **Start Here:** Complete Phase 0 and Phase 1 first. Do not download the full image archive until the fixture pipeline and minimum storage permissions work. Treat every deferred production feature as optional until the public MVP is released.
-
-## How to use this plan
-- Move only a few task IDs into In Progress at once. Finish acceptance evidence before moving a task to Done.
-- Tasks are ordered by dependency. A phase gate is a stop/go checkpoint, not optional documentation.
-- The MVP cut line is the end of Phase 7. Super-resolution is a separate Release 2 backlog.
-- When a design decision changes, update an architecture decision record and the affected dataset version; do not silently mutate published data.
+| Reference stack | Databricks Unity Catalog (catalog + bronze/silver/gold schemas, Volumes for file storage) + Python + Delta Silver tables + Parquet Gold manifest + Databricks Jobs/MLflow + local or third-party GPU. |
+| Plan date | 2026-08-18 (implementation sections last reconciled 2026-09-01) |
 
 ## 1. Project outcome and boundaries
 
 > **Project Outcome:** A reviewer can trace a model run back to an immutable Gold manifest, a validated Silver inventory and the exact Bronze image checksums used to create it.
 
 ### Success criteria
-- A rerun of the Bronze backfill overwrites no verified source object.
+- ~~A rerun of the Bronze backfill overwrites no verified source object.~~ Superseded by a deliberate tradeoff — Bronze ingestion writes directly to the production table and a rerun rebuilds it from scratch rather than skipping already-verified images; see the BRZ-002 deviation note in Phase 2 and `docs/decisions/002-store-bronze-images-as-delta-blobs.md`.
 - Every image is reconciled to a label and has an accepted or rejected state.
 - Train/validation/test splits keep patient, lesion and duplicate groups together where identifiers permit.
 - Gold manifests are immutable, checksummed and tied to source, processing and Git versions.
@@ -66,27 +58,6 @@ ISIC source  ->  Bronze originals  ->  Silver validated inventory  ->  Gold mode
 | ImageNet mean/std | Training and inference runtime | Produces model-specific floating-point tensors; storing them wastes space |
 | SR degradation and patches | Gold SR product | Consumer-specific derived pairs |
 
-## 3. Initial Kanban board
-
-> **Work-In-Progress Limit:** Keep no more than two engineering tasks in progress. Documentation and review may run alongside one engineering task.
-
-| NOW | NEXT | LATER |
-|---|---|---|
-| SCP-001 Repository, scope and fixtures | FND-001 Storage and configuration | BRZ-001 onward after the foundation gate |
-| Goal: scope is locked and fixtures pass | Goal: the fixture pipeline can use storage | Release 2 stays blocked until the showcase release |
-
-### Suggested cadence
-
-| Timebox | Target outcome |
-|---|---|
-| Week 1 | Phase 0-1: scope, repository, fixtures, minimum storage and access |
-| Week 2 | Phase 2: Bronze metadata, images and idempotency evidence |
-| Week 3 | Phase 3: Silver inventory, quality gates and leakage groups |
-| Week 4 | Phase 4: grouped splits, Gold manifest, preprocessing and cache |
-| Week 5 | Phase 5-6: baseline, one workflow, fixture CI and run summary |
-| Week 6 | Phase 7: case study, walkthrough, reproducibility review and MVP release |
-| After release | Optional Release 2: super-resolution data product and experiment |
-
 ## Phase 0. Scope the showcase and create the fixture project
 
 **Phase Goal:** Lock a finishable classifier MVP and prove the project structure before using cloud resources.
@@ -101,10 +72,9 @@ ISIC source  ->  Bronze originals  ->  Silver validated inventory  ->  Gold mode
 
 **Depends On:** None
 
-**Estimate:** 0.5-1 day
 - Define the MVP as Bronze ingestion, Silver validation, one Gold classifier manifest, one baseline model and a public case study.
 - Create pyproject.toml, src/data_platform, pipelines, tests, config, docs and notebooks directories.
-- Add 10-20 synthetic or permitted fixtures covering valid, corrupt, duplicate and missing-label cases.
+- Cover valid, corrupt, duplicate and missing-label cases with synthetic fixtures — implemented as fixtures generated on the fly in tests (`tmp_path`, in-memory archives) rather than files checked into `tests/fixtures/`.
 - List non-goals: clinical deployment, full-archive ingestion, real-time streaming, multi-environment CI/CD and super-resolution before Release 2.
 
 **Acceptance evidence**
@@ -126,8 +96,7 @@ ISIC source  ->  Bronze originals  ->  Silver validated inventory  ->  Gold mode
 
 **Depends On:** SCP-001
 
-**Estimate:** 0.5-1 day
-- Create one ADLS Gen2 container with bronze, silver, gold and rejected prefixes.
+- Use one Databricks Unity Catalog catalog (`derm_showcase_project`) with `bronze`/`silver`/`gold` schemas for tables, and Unity Catalog Volumes (`landing`, `files`) for archive/metadata file storage — Unity Catalog governance in place of a raw ADLS Gen2 container with layer prefixes.
 - Use one pipeline identity or developer identity for ingestion; issue narrowly scoped read access to external GPU compute only when needed.
 - Disable public blob access and configure one budget alert.
 - Use Delta for Silver and operational tables, and publish the portable Gold training manifest as Parquet.
@@ -152,7 +121,6 @@ ISIC source  ->  Bronze originals  ->  Silver validated inventory  ->  Gold mode
 
 **Depends On:** FND-001
 
-**Estimate:** 0.5 day
 - Download the official ISIC 2019 training metadata and ground truth before images.
 - Record source URL, retrieval time, file size, SHA-256, source version, licence and attribution.
 - Validate 25,331 unique labelled IDs across the expected eight training classes.
@@ -167,16 +135,15 @@ ISIC source  ->  Bronze originals  ->  Silver validated inventory  ->  Gold mode
 
 **Depends On:** BRZ-001
 
-**Estimate:** 1-2 days
-- Use the official challenge archive or isic-cli for the bulk historical load.
+- Use the official challenge archive for the bulk historical load (train + test archives).
 - Stage each archive locally, calculate SHA-256 from local image bytes, and write image rows with batched Spark table writes.
 - Record downloaded, skipped, failed, bytes and duration; never resize or recompress Bronze images.
-- Run the completed load a second time and capture its zero-change metrics.
+- **Deviation from the original idempotency goal:** implemented as a direct write, not stage-then-atomically-replace — the first batch of a run overwrites `bronze.isic_2019_image_blobs` and every batch after that appends, so a rerun always rebuilds the whole table from scratch rather than skipping unchanged images. Accepted deliberately for this project's scale (archives are already staged to local disk, so a full rerun re-reads local disk and rewrites Delta rows, not the per-file Volume API calls that caused the original ingestion cost problem) — see `docs/decisions/002-store-bronze-images-as-delta-blobs.md`. Revisit if ingestion runs unattended or archive count grows.
 
 **Acceptance evidence**
 - Every expected ID is stored or has an explicit failure record.
 - Every stored image has a checksum and source lineage.
-- The second run reports zero unnecessary downloads and zero overwrites.
+- ~~The second run reports zero unnecessary downloads and zero overwrites.~~ Superseded — see the deviation note above. A rerun today fully rewrites the table rather than reporting zero overwrites; rerun/merge/dedup logic is instead covered by unit tests against fixture archives (`tests/test_files.py`), not by a real-data rerun.
 
 ## Phase 3. Build the trustworthy Silver inventory
 
@@ -192,7 +159,6 @@ ISIC source  ->  Bronze originals  ->  Silver validated inventory  ->  Gold mode
 
 **Depends On:** BRZ-001, BRZ-002
 
-**Estimate:** 1-1.5 days
 - Decode each JPEG and record width, height, channels, format, file size, checksum and Bronze URI.
 - Normalize image IDs, diagnosis codes and missing values while preserving original source values.
 - Join labels to inventory and identify corrupt files, orphan labels and unlabelled images.
@@ -209,7 +175,6 @@ ISIC source  ->  Bronze originals  ->  Silver validated inventory  ->  Gold mode
 
 **Depends On:** SLV-001
 
-**Estimate:** 0.5-1 day
 - Group exact duplicates by SHA-256.
 - Retain patient and lesion identifiers where supplied and report their completeness.
 - Defer perceptual near-duplicate detection unless exact hashes and source identifiers prove insufficient.
@@ -232,7 +197,6 @@ ISIC source  ->  Bronze originals  ->  Silver validated inventory  ->  Gold mode
 
 **Depends On:** SLV-002
 
-**Estimate:** 1 day
 - Prioritize patient groups, then lesion groups, and always keep exact duplicates together.
 - Stratify diagnosis distribution where grouping constraints permit.
 - Publish image ID, Bronze URI, label, split, grouping fields and dataset version as Parquet.
@@ -249,7 +213,6 @@ ISIC source  ->  Bronze originals  ->  Silver validated inventory  ->  Gold mode
 
 **Depends On:** GLD-001
 
-**Estimate:** 0.5-1 day
 - Version resize, aspect-ratio handling, augmentation and ImageNet mean/std as model runtime configuration.
 - Do not persist resized images or normalized tensors unless measured training performance later justifies a disposable cache.
 - Synchronize manifest images to local SSD and verify checksums before training.
@@ -273,7 +236,6 @@ ISIC source  ->  Bronze originals  ->  Silver validated inventory  ->  Gold mode
 
 **Depends On:** GLD-002
 
-**Estimate:** 1.5-2.5 days plus GPU time
 - Run one local CPU smoke epoch on a small stratified subset before paid GPU use.
 - Fine-tune one modest pretrained classifier such as ResNet-18.
 - Report balanced accuracy, per-class recall, confusion matrix and a concise error analysis.
@@ -298,15 +260,14 @@ ISIC source  ->  Bronze originals  ->  Silver validated inventory  ->  Gold mode
 
 **Depends On:** BRZ-002, SLV-001, GLD-001
 
-**Estimate:** 1 day
-- Use one Databricks Job to call the tested CLI stages for metadata, image reconciliation, validation, quality gate and publication.
-- Run formatting, linting, unit tests and the fixture pipeline in GitHub Actions.
-- Cover corrupt image, missing label, idempotent rerun and deterministic split cases; never download the full dataset in CI.
+- **Deviation:** implemented notebook-first instead of CLI-stages-plus-Databricks-Job — `ingest.py`/`publish.py` remain empty placeholder modules; the real Bronze/Silver logic lives in `src/data_platform/spark_io.py`, `files.py`, `validate.py` and the numbered notebooks (`notebooks/isic_2019/`), run manually in sequence. Orchestrating these as an actual Databricks Job/Workflow is still open (see `docs/project-checklist.md`, Automation section).
+- GitHub Actions (`.github/workflows/ci.yml`) currently runs unit tests only (`pytest`); formatting/linting and an end-to-end fixture-pipeline run are not wired in yet.
+- Cover corrupt image, missing label, idempotent rerun and deterministic split cases; never download the full dataset in CI. (Idempotent-rerun coverage is unit tests against fixture archives, not a real-data rerun — see the BRZ-002 deviation note above.)
 - Do not create development, test and production deployment pipelines for the MVP.
 
 **Acceptance evidence**
 - A failed quality gate prevents Gold publication.
-- A successful rerun skips unchanged Bronze images.
+- ~~A successful rerun skips unchanged Bronze images.~~ Superseded — Bronze reruns fully rewrite the table by design; see BRZ-002.
 - CI passes without cloud secrets and displays a passing badge.
 
 #### OPS-002 Produce one quality and run-summary notebook
@@ -315,7 +276,6 @@ ISIC source  ->  Bronze originals  ->  Silver validated inventory  ->  Gold mode
 
 **Depends On:** OPS-001
 
-**Estimate:** 0.5 day
 - Show discovered, downloaded, skipped, rejected, bytes, duration and published version.
 - Include image dimensions, diagnosis distribution, duplicate groups, split distribution and rejection reasons.
 - Add a cache-hit summary if it is already available; do not build a separate dashboard.
@@ -338,7 +298,6 @@ ISIC source  ->  Bronze originals  ->  Silver validated inventory  ->  Gold mode
 
 **Depends On:** ML-001, OPS-002
 
-**Estimate:** 1 day
 - Make the repository README the primary case study: problem, architecture, counts, idempotency, quality gates, grouped splits, caching, lineage and baseline results.
 - Add architecture and quality screenshots; create a short walkthrough video only if it materially improves comprehension.
 - Treat GitHub Pages as optional rather than a release dependency.
@@ -349,7 +308,7 @@ ISIC source  ->  Bronze originals  ->  Silver validated inventory  ->  Gold mode
 - All public links work while logged out and screenshots reveal no secrets.
 - No paid compute remains running after demonstration.
 
-## 8. Deferred work after the showcase release
+## 3. Deferred work after the showcase release
 
 > **Deferred Means Deferred:** These items may improve a later release, but none should delay the classifier MVP or public case study.
 
@@ -371,7 +330,7 @@ ISIC source  ->  Bronze originals  ->  Silver validated inventory  ->  Gold mode
 - Multiple orchestration systems, Kubernetes, feature stores or services not consumed by the project.
 - Physical Silver copies of every JPEG or persisted ImageNet-normalized tensors.
 
-## 9. Definition of Done
+## 4. Definition of Done
 
 > **Rule:** A task is not Done because code exists. It is Done when its acceptance evidence is visible and repeatable.
 
@@ -380,7 +339,7 @@ ISIC source  ->  Bronze originals  ->  Silver validated inventory  ->  Gold mode
 - Relevant unit or integration tests pass.
 - Rerun behaviour is understood and safe.
 - Documentation or configuration is updated when behaviour changes.
-- Acceptance evidence is captured in the project board or README.
+- Acceptance evidence is captured in `docs/project-checklist.md` or the README.
 
 ### MVP release checklist
 

@@ -26,7 +26,7 @@ Verified end-to-end on Databricks with the real ISIC 2019 train/test archives. R
 - 🟩 Normalize metadata and labels
 - 🟩 Create leakage-control groups
 - 🟩 Write rejected-record outputs
-- ⬜ Standardize label vocabulary across datasets — each dataset's own `normalize_labels` function (e.g. `data_platform.datasets.isic_2019.normalize_labels`) currently invents its own output strings independently. A second dataset describing the same underlying concept differently (e.g. "cancer" or a numeric code instead of "malignant") would silently drift the shared `malignancy`/`specific_diagnosis` columns into inconsistent vocabulary rather than actually being comparable across datasets. Design a canonical vocabulary (or a shared mapping layer) before onboarding a second dataset, so per-dataset normalization functions map onto consistent values instead of each dataset defining its own.
+- 🟩 Standardize label vocabulary for `malignancy` — canonical values live in `data_platform.labels.MALIGNANCY_VALUES` (`benign`/`malignant`/`indeterminate`, fixed) and are enforced at Silver-run time by `apply_label_normalization`'s `controlled_vocabularies` param: a dataset's `normalize_labels` producing a value outside the canonical set fails the Silver run loudly instead of silently drifting the shared column. `specific_diagnosis` is deliberately left uncanonicalized — free text by design; a crosswalk across datasets is deferred until a real second dataset shows what the actual mapping problem looks like, rather than speculatively designing against taxonomies that don't exist yet.
 
 Verified end-to-end on Databricks: `notebooks/isic_2019/20_silver_validate.ipynb` ran successfully against real Bronze data on serverless compute, with sane accepted/rejected/leakage-group counts (32,413 accepted, 1,156 rejected for unresolvable label, 16,800 leakage-control groups). Running this also surfaced and fixed a real bug — `.cache()`/`.persist()` throughout `spark_io.py` is unsupported on Databricks serverless compute; see `AGENT.md`'s "Databricks serverless compute" section and `data_platform.spark_io.materialize()`. See `docs/decisions/003-silver-label-columns-not-map.md` for the label schema design.
 
@@ -47,6 +47,7 @@ Verified end-to-end on Databricks: `notebooks/isic_2019/20_silver_validate.ipynb
 ## Automation
 
 - 🟨 Add fixture-backed tests (`data_platform.files`, `data_platform.validate`, `data_platform.datasets.isic_2019` covered; `ingest`/`publish` still placeholders)
+- ⬜ Review test coverage across the whole codebase and fill gaps for anything important (not just the modules already covered) — a deliberate pass, not incidental coverage from writing feature tests
 - 🟩 Wire GitHub Actions CI
 - ⬜ Add notebook summaries for data quality and results
 - ⬜ Add Databricks job deployment configuration when ready

@@ -113,6 +113,41 @@ def reject_rows(
     return rejected_df
 
 
+def assert_controlled_vocabularies(df, controlled_vocabularies: dict[str, tuple[str, ...]], context: str = "") -> None:
+    """Raise if any column in `controlled_vocabularies` holds a non-null value outside its allowed set.
+
+    Checks every column in one aggregation (a single Spark action) rather than one
+    `.collect()` per column. A violation means whatever produced that column's
+    values doesn't map onto the shared vocabulary — a systematic bug in that code,
+    not per-row data variance — so this raises and fails the run rather than
+    rejecting individual rows the way `reject_rows` does. `context` is an optional
+    string (e.g. `f"dataset_key={dataset_key!r}"`) included in the error message to
+    help locate the caller.
+    """
+    if not controlled_vocabularies:
+        return
+
+    unknown_columns = set(controlled_vocabularies) - set(df.columns)
+    if unknown_columns:
+        raise ValueError(f"controlled_vocabularies references column(s) not present on the DataFrame: {sorted(unknown_columns)}")
+
+    agg_exprs = [
+        F.collect_set(F.when(F.col(column).isNotNull() & ~F.col(column).isin(*allowed_values), F.col(column))).alias(column)
+        for column, allowed_values in controlled_vocabularies.items()
+    ]
+    result = df.agg(*agg_exprs).collect()[0]
+
+    for column, allowed_values in controlled_vocabularies.items():
+        invalid_values = list(result[column] or [])[:5]
+        if invalid_values:
+            suffix = f" for {context}" if context else ""
+            raise ValueError(
+                f"Column {column!r} has value(s) outside the canonical vocabulary {allowed_values}{suffix}: "
+                f"{invalid_values}. Fix the code producing this column to map onto the canonical set "
+                f"instead of inventing new values."
+            )
+
+
 # ============================================================================
 # Bronze pipeline — write_image_blob_table/load_combined_metadata assume
 # archive-based ingestion (say so in their own docstrings); write_ingestion_run
@@ -378,6 +413,7 @@ def apply_label_normalization(
     silver_tables: dict,
     dataset_key: str,
     bronze_uri_col: str = "source_uri",
+    controlled_vocabularies: dict[str, tuple[str, ...]] | None = None,
 ):
     """Apply a dataset-specific label-normalization function as a Spark UDF.
 
@@ -386,6 +422,20 @@ def apply_label_normalization(
     (one per `label_columns` entry), splitting rows into label-valid vs unlabeled
     (a row is valid if any label_columns value resolved), and rejecting the
     unlabeled ones. Returns the label-valid DataFrame.
+
+    `controlled_vocabularies` optionally maps a subset of `label_columns` to the
+    fixed set of values that column may hold (e.g. `{"malignancy":
+    data_platform.labels.MALIGNANCY_VALUES}`). A `label_columns` entry absent
+    from this dict (e.g. `specific_diagnosis`) is open-ended free text and is
+    never checked — this guards only the label axes meant to be cross-dataset
+    comparable (see docs/decisions/003-silver-label-columns-not-map.md).
+
+    Checked on labeled_df (metadata only, before any image-byte join or
+    materialize()), so it's cheap. A value outside the vocabulary means
+    normalize_fn itself has a bug — every row with that underlying source value
+    would fail identically, it isn't per-row data variance — so this raises and
+    fails the run rather than rejecting individual rows the way the
+    unresolved-label path below does.
     """
     normalize_fn_udf = F.udf(normalize_fn, MapType(StringType(), StringType()))
 
@@ -393,6 +443,8 @@ def apply_label_normalization(
     for label_column in label_columns:
         labeled_df = labeled_df.withColumn(label_column, F.col("labels")[label_column])
     labeled_df = labeled_df.drop("labels")
+
+    assert_controlled_vocabularies(labeled_df, controlled_vocabularies or {}, context=f"dataset_key={dataset_key!r}")
 
     is_label_valid = F.lit(False)
     for label_column in label_columns:

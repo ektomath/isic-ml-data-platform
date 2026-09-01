@@ -90,7 +90,7 @@ only table that carries rejected rows and their reasons.
 | `image_format` | string or null | Decoded file format |
 | `validation_status` | string | Always `accepted` in this table — a row only exists here once it's passed every check; there is no `rejected` value in practice |
 | `validation_reason` | string or null | Always `null` in this table (reserved); actual rejection reasons live in `silver.rejected_records.rejection_reason` |
-| `malignancy` | string or null | Canonical benign/malignant/indeterminate classification, from this dataset's source label |
+| `malignancy` | string or null | Canonical benign/malignant/indeterminate classification, from this dataset's source label. Enforced (not just documented) against `data_platform.labels.MALIGNANCY_VALUES` at Silver-run time via `apply_label_normalization`'s `controlled_vocabularies` — a dataset's `normalize_labels` producing any other value fails the run rather than silently drifting this column |
 | `specific_diagnosis` | string or null | Most specific diagnosis value available from this dataset's source label |
 | `patient_id` | string or null | Used for leakage grouping |
 | `lesion_id` | string or null | Used for leakage grouping |
@@ -100,6 +100,8 @@ only table that carries rejected rows and their reasons.
 `MERGE INTO` is keyed on (`dataset_key`, `image_id`) together, not `image_id` alone.
 
 Label columns grow via `ALTER TABLE ... ADD COLUMNS` as new datasets need new label axes (for example a future dataset's `severity` or `body_site`) — each new column is nullable for every dataset that doesn't populate it. This keeps `image_inventory` a single shared table with real, Unity-Catalog-discoverable columns instead of a per-dataset table or an opaque map column. See `docs/decisions/003-silver-label-columns-not-map.md` for the rationale. Image validation criteria (e.g. dimension bounds) can also vary by dataset — see `docs/silver_validation_rules.md`.
+
+`specific_diagnosis` is deliberately **not** enforced this way — it stays open-ended free text per dataset; only label axes meant to be cross-dataset comparable (currently just `malignancy`) get a controlled vocabulary.
 
 ### `silver.leakage_groups`
 
