@@ -1,16 +1,16 @@
 # MILK10k — second dataset, onboarded from the ISIC Archive.
 # Single release, no train/test split (unlike isic_2019).
 #
-# TODO once the download/extraction finishes: fill in source_version,
-# archive_filename, and metadata_filename below with the real values —
-# do not guess these, they must match the actual downloaded files.
+# source_version is a provisional label (no separate release/version tag known
+# yet) — update once a real one is confirmed; cheap to fix, nothing has been
+# ingested against this config yet.
 dataset_key: milk10k
 dataset_name: isic/milk10k
-source_version: "TODO"
+source_version: "milk10k"
 bronze_prefix: milk10k
 silver_prefix: silver/milk10k
 gold_prefix: null
 archives:
   - source_split: all
-    archive_filename: TODO.zip
-    metadata_filename: TODO.csv
+    archive_filename: milk10k.zip
+    metadata_filename: metadata.csv

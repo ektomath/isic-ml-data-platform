@@ -15,7 +15,7 @@ Status key: `🟩` done, `🟨` in progress, `⬜` not started
 - 🟩 Save images as blob rows in `bronze.isic_2019_image_blobs`
 - 🟩 Ingest ISIC 2019 metadata (includes diagnosis labels from `metadata.csv`)
 - 🟩 Record ingestion runs and checksums
-- 🟨 Add secondary dataset — MILK10k (ISIC Archive), single release with no train/test split. Config skeleton at `config/datasets/milk10k.yaml` (placeholders for source_version/archive_filename/metadata_filename — TODO once download finishes). Blocked on download/extraction completing so the real metadata columns and archive layout can be inspected before writing `data_platform.datasets.milk10k.normalize_labels`, Bronze DDL, and the dataset's notebooks — see `AGENT.md`.
+- 🟨 Add secondary dataset — MILK10k (ISIC Archive), single release with no train/test split. `config/datasets/milk10k.yaml`, the shared `data_platform.labels.normalize_diagnosis_labels` (unit-tested against the real `metadata.csv` header/sample row, `tests/test_labels.py`), the `bronze.milk10k_source_metadata` schema, and all three `notebooks/milk10k/*.ipynb` are written. Not yet run against Databricks — blocked on the archive download/extraction finishing. See `AGENT.md`'s "Current next step" for what's left.
 
 Verified end-to-end on Databricks with the real ISIC 2019 train/test archives. Rerun/merge/dedup behavior is covered by unit tests against fixture archives (`tests/test_files.py`) and by code review, but has not been re-verified against a second real-data run — re-running Bronze ingestion against the real archives is expensive (see `docs/lessons-learned.md`). See Automation section for a follow-up item to cover this with mock data instead.
 
@@ -46,7 +46,7 @@ Verified end-to-end on Databricks: `notebooks/isic_2019/20_silver_validate.ipynb
 
 ## Automation
 
-- 🟨 Add fixture-backed tests (`data_platform.files`, `data_platform.validate`, `data_platform.datasets.isic_2019` covered; `ingest`/`publish` still placeholders)
+- 🟨 Add fixture-backed tests (`data_platform.files`, `data_platform.validate`, `data_platform.labels` covered; `ingest`/`publish` still placeholders)
 - ⬜ Review test coverage across the whole codebase and fill gaps for anything important (not just the modules already covered) — a deliberate pass, not incidental coverage from writing feature tests
 - 🟩 Wire GitHub Actions CI
 - ⬜ Add notebook summaries for data quality and results

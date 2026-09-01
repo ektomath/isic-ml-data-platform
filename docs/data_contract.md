@@ -42,6 +42,32 @@ Source metadata extracted from the ISIC release and preserved without model-spec
 | `ingestion_run_id` | string | Links to the ingestion run |
 | `ingested_at` | timestamp | Pipeline timestamp |
 
+### `bronze.milk10k_source_metadata`
+
+Source metadata extracted from the MILK10k release and preserved without model-specific transformation. A different shape than `bronze.isic_2019_source_metadata` by design (see `AGENT.md`'s "Table strategy" — Bronze source tables are kept dataset-specific since source schemas differ): 4 diagnosis levels and 2 anatomic-site levels instead of ISIC 2019's 5, no `patient_id`/`clin_size_long_diam_mm`/`dermoscopic_type`/`family_hx_mm`/`personal_hx_mm`, plus a MILK10k-only `image_manipulation` column. MILK10k is a single release with no train/test split, so `source_split` is always `all` for this table.
+
+| Field | Type | Notes |
+|---|---|---|
+| `image_id` | string | Stable ISIC identifier from `isic_id` |
+| `source_split` | string | Always `all` — MILK10k has no train/test split |
+| `source_uri` | string | Logical reference to the Bronze image blob row |
+| `attribution` | string or null | Source attribution text |
+| `copyright_license` | string or null | Source license value |
+| `age_approx` | string or null | Approximate patient age from source metadata |
+| `anatom_site_1` ... `anatom_site_2` | string or null | Source anatomic site hierarchy |
+| `anatom_site_special` | string or null | Source special anatomic site value |
+| `concomitant_biopsy` | string or null | Source biopsy flag/value |
+| `diagnosis_1` ... `diagnosis_4` | string or null | Source diagnosis hierarchy |
+| `diagnosis_confirm_type` | string or null | Diagnosis confirmation type |
+| `image_manipulation` | string or null | Source image-manipulation value — not present in ISIC 2019's metadata |
+| `image_type` | string or null | Source image type |
+| `lesion_id` | string or null | If available in source metadata |
+| `melanocytic` | string or null | Source melanocytic flag/value |
+| `sex` | string or null | Source sex value |
+| `source_checksum` | string | SHA-256 of the source image bytes |
+| `ingestion_run_id` | string | Links to the ingestion run |
+| `ingested_at` | timestamp | Pipeline timestamp |
+
 ### `bronze.isic_2019_image_blobs`
 
 Source image bytes extracted from locally staged ISIC release archives and stored as Delta rows.
@@ -55,6 +81,8 @@ Source image bytes extracted from locally staged ISIC release archives and store
 | `image_bytes` | binary | Original encoded image bytes |
 | `byte_length` | long | Number of encoded bytes |
 | `source_checksum` | string | SHA-256 of `image_bytes` |
+
+`bronze.milk10k_image_blobs` has the identical shape (`IMAGE_BLOB_SCHEMA` in `data_platform.spark_io` is the shared, dataset-agnostic schema both tables are created from) — only the table name and `source_split` values differ (always `all` for MILK10k).
 
 ### `bronze.ingestion_runs`
 
