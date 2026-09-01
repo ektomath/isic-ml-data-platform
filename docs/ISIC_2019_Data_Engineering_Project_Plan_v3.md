@@ -359,7 +359,7 @@ ISIC source  ->  Bronze originals  ->  Silver validated inventory  ->  Gold mode
 |---|---|
 | Scope expands into SR before the showcase works | Release 2 remains blocked until Phase 7 and the MVP release checklist are complete |
 | Network access starves GPU training | Manifest-driven local SSD cache; synchronize once and verify checksums |
-| Patient/lesion leakage inflates results | Group-aware splits and duplicate-group assertions |
+| Patient/lesion leakage inflates results | Group-aware splits and duplicate-group assertions, scoped per dataset — cross-dataset leakage between onboarded datasets is not checked; see `docs/decisions/004-cross-dataset-leakage-not-checked.md` |
 | Preprocessing cannot be reproduced | Versioned config, shared train/inference package and deterministic tests |
 | Derived images obscure source lineage | Immutable Bronze originals and parent/output checksums for every physical variant |
 | Medical results are overstated | Research-only framing, calibration/error analysis and explicit limitations |

@@ -133,7 +133,7 @@ Label columns grow via `ALTER TABLE ... ADD COLUMNS` as new datasets need new la
 
 ### `silver.leakage_groups`
 
-Grouping table used to prevent patient or lesion leakage across dataset splits.
+Grouping table used to prevent patient or lesion leakage across dataset splits. Scoped per dataset by design, not just as an implementation detail: cross-dataset leakage is never checked, and the pipeline assumes without verifying that its source datasets are non-overlapping — see `docs/decisions/004-cross-dataset-leakage-not-checked.md`.
 
 | Field | Type | Notes |
 |---|---|---|
