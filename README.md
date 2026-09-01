@@ -65,8 +65,8 @@ In general my workflow is to generate smaller sections of code in chunks rather 
 ## Notebook flow
 
 - `notebooks/_setup_env.ipynb`: shared Databricks notebook environment setup for imports
-- `notebooks/00_setup_storage.ipynb`: shared medallion schemas and storage conventions
-- `notebooks/isic_2019/05_setup_tables_and_folders.ipynb`: ISIC 2019 Bronze/Silver/Gold table and volume folder setup
+- `notebooks/00_setup_storage_and_shared_tables.ipynb`: shared medallion schemas, storage conventions, and every shared table (`bronze.ingestion_runs`, all of Silver) — created once here since it's identical regardless of dataset
+- `notebooks/isic_2019/05_setup_tables_and_folders.ipynb`: ISIC 2019 Bronze (and, later, Gold) table and volume folder setup
 - `notebooks/isic_2019/10_bronze_ingest.ipynb`: end-to-end Bronze ingestion for ISIC 2019
 - `notebooks/isic_2019/20_silver_validate.ipynb`: label normalization, image validation, and leakage-control grouping for ISIC 2019
 - `notebooks/milk10k/05_setup_tables_and_folders.ipynb`, `10_bronze_ingest.ipynb`, `20_silver_validate.ipynb`: the same flow for MILK10k, the second onboarded dataset

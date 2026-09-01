@@ -39,6 +39,7 @@ from pyspark.sql.types import (
 )
 
 from data_platform.files import IMAGE_SUFFIXES, count_zip_members_by_suffix, iter_image_blob_rows
+from data_platform.labels import SILVER_LABEL_COLUMN_DDL
 from data_platform.validate import MAX_DIMENSION, MIN_DIMENSION, decode_batch
 
 # ============================================================================
@@ -343,6 +344,8 @@ def print_bronze_outputs(
 # Silver pipeline — reconcile_bronze_records, apply_label_normalization,
 # validate_images, build_accepted_rows, assign_leakage_groups_and_write_inventory,
 # print_silver_outputs, called in that order from a dataset's Silver notebook.
+# ensure_silver_tables is the one exception: it's schema setup, called from a
+# dataset's 05_setup_tables_and_folders.ipynb, not the Silver validate notebook.
 # ============================================================================
 
 DECODE_OUTPUT_SCHEMA = StructType(
@@ -370,6 +373,75 @@ GROUP_SOURCE_BY_TYPE = {
     "singleton": "image_id",
 }
 GROUP_SOURCE_MAP = F.create_map(*[F.lit(item) for pair in GROUP_SOURCE_BY_TYPE.items() for item in pair])
+
+
+def ensure_silver_tables(spark) -> None:
+    """Create the shared Silver tables (image_inventory, leakage_groups, rejected_records)
+    if they don't already exist, then add any missing label columns from
+    data_platform.labels.SILVER_LABEL_COLUMN_DDL via a guarded ALTER TABLE (Delta has no
+    ADD COLUMNS IF NOT EXISTS, so the guard is done in Python).
+
+    Idempotent, and safe to call from more than one dataset's 05_setup_tables_and_folders.ipynb
+    — these tables are shared across datasets, not dataset-specific (see
+    docs/decisions/003-silver-label-columns-not-map.md). Unlike
+    apply_label_normalization's controlled_vocabularies check, this has nothing
+    dataset-specific to show inline (it's the same DDL for every dataset, byte for byte),
+    so — unlike the Bronze source-metadata MERGE, which stays hand-written in each
+    dataset's own notebook so the exact column mapping stays visible there — this is
+    shared code, not duplicated per dataset.
+    """
+    spark.sql(
+        """
+        CREATE TABLE IF NOT EXISTS silver.image_inventory (
+          dataset_key STRING,
+          image_id STRING,
+          bronze_uri STRING,
+          source_checksum STRING,
+          image_width INT,
+          image_height INT,
+          image_format STRING,
+          validation_status STRING,
+          validation_reason STRING,
+          patient_id STRING,
+          lesion_id STRING,
+          group_id STRING,
+          validated_at TIMESTAMP
+        )
+        USING DELTA
+        """
+    )
+
+    existing_columns = {field.name for field in spark.table("silver.image_inventory").schema.fields}
+    missing_label_columns = [
+        f"{name} {ddl}" for name, ddl in SILVER_LABEL_COLUMN_DDL.items() if name not in existing_columns
+    ]
+    if missing_label_columns:
+        spark.sql(f"ALTER TABLE silver.image_inventory ADD COLUMNS ({', '.join(missing_label_columns)})")
+
+    spark.sql(
+        """
+        CREATE TABLE IF NOT EXISTS silver.leakage_groups (
+          dataset_key STRING,
+          group_id STRING,
+          group_type STRING,
+          group_source STRING,
+          image_count INT
+        )
+        USING DELTA
+        """
+    )
+    spark.sql(
+        """
+        CREATE TABLE IF NOT EXISTS silver.rejected_records (
+          dataset_key STRING,
+          image_id STRING,
+          bronze_uri STRING,
+          rejection_reason STRING,
+          rejected_at TIMESTAMP
+        )
+        USING DELTA
+        """
+    )
 
 
 def reconcile_bronze_records(spark, bronze_tables: dict, silver_tables: dict, dataset_key: str):
