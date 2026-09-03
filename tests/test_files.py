@@ -1,13 +1,18 @@
 import zipfile
 from pathlib import Path
 
+import hashlib
+
 from data_platform.files import (
     IMAGE_SUFFIXES,
     check_archives_exist,
     count_zip_members_by_suffix,
     extract_zip_members,
+    format_bronze_uri,
     is_image_file,
-    iter_image_blob_rows,
+    iter_archive_image_rows,
+    iter_archive_matches,
+    parse_bronze_uri,
     stage_archive_locally,
     stage_archives_and_extract_metadata,
 )
@@ -66,7 +71,7 @@ def test_stage_archive_locally_rejects_mismatched_existing_copy(tmp_path):
         raise AssertionError("Expected mismatched staged archive to fail")
 
 
-def test_iter_image_blob_rows_reads_image_bytes_without_extracting(tmp_path):
+def test_iter_archive_image_rows_reads_image_bytes_without_extracting(tmp_path):
     archive_path = tmp_path / "archive.zip"
     with zipfile.ZipFile(archive_path, "w") as archive:
         archive.writestr("images/a.jpg", b"image-a")
@@ -74,7 +79,7 @@ def test_iter_image_blob_rows_reads_image_bytes_without_extracting(tmp_path):
         archive.writestr("metadata.csv", "image,dx\nISIC_1,nv\n")
 
     rows = list(
-        iter_image_blob_rows(
+        iter_archive_image_rows(
             archive_path,
             source_split="train",
             source_archive_uri="dbfs:/landing/archive.zip",
@@ -102,6 +107,23 @@ def test_iter_image_blob_rows_reads_image_bytes_without_extracting(tmp_path):
         },
     ]
     assert not (tmp_path / "images").exists()
+
+
+def test_iter_archive_image_rows_applies_member_predicate_before_reading_bytes(tmp_path):
+    archive_path = tmp_path / "archive.zip"
+    with zipfile.ZipFile(archive_path, "w") as archive:
+        archive.writestr("a.jpg", b"image-a")
+        archive.writestr("b.jpg", b"image-b")
+
+    rows = list(
+        iter_archive_image_rows(
+            archive_path,
+            source_split="train",
+            member_predicate=lambda path: path.name == "a.jpg",
+        )
+    )
+
+    assert [row["image_id"] for row in rows] == ["a"]
 
 
 def test_count_zip_members_by_suffix_groups_by_lowercase_suffix(tmp_path):
@@ -198,3 +220,106 @@ def test_stage_archives_and_extract_metadata_rejects_duplicate_metadata_files(tm
         assert "extracted 2" in str(error)
     else:
         raise AssertionError("Expected duplicate metadata files to fail")
+
+
+def test_parse_bronze_uri_recovers_archive_uri_and_member_path():
+    source_archive_uri, archive_member_path = parse_bronze_uri(
+        "archive:dbfs:/landing/archive.zip#images/a.jpg"
+    )
+
+    assert source_archive_uri == "dbfs:/landing/archive.zip"
+    assert archive_member_path == "images/a.jpg"
+
+
+def test_format_bronze_uri_round_trips_with_parse_bronze_uri():
+    uri = format_bronze_uri("dbfs:/landing/archive.zip", "images/a.jpg")
+
+    assert uri == "archive:dbfs:/landing/archive.zip#images/a.jpg"
+    assert parse_bronze_uri(uri) == ("dbfs:/landing/archive.zip", "images/a.jpg")
+
+
+def _checksum(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def test_iter_archive_matches_yields_verified_matches_across_archives(tmp_path):
+    image_a, image_b = b"image-a", b"image-b"
+    archive_1 = tmp_path / "archive1.zip"
+    archive_2 = tmp_path / "archive2.zip"
+    with zipfile.ZipFile(archive_1, "w") as archive:
+        archive.writestr("a.jpg", image_a)
+    with zipfile.ZipFile(archive_2, "w") as archive:
+        archive.writestr("b.jpg", image_b)
+
+    candidates_by_archive_uri = {
+        "uri1": {"a.jpg": {"image_id": "a", "source_checksum": _checksum(image_a)}},
+        "uri2": {"b.jpg": {"image_id": "b", "source_checksum": _checksum(image_b)}},
+    }
+    checksum_mismatches: list[dict] = []
+    missing_candidates: list[dict] = []
+
+    matches = list(
+        iter_archive_matches(
+            candidates_by_archive_uri,
+            {"uri1": archive_1, "uri2": archive_2},
+            checksum_mismatches,
+            missing_candidates,
+        )
+    )
+
+    assert {candidate["image_id"] for candidate, _archive_row in matches} == {"a", "b"}
+    assert checksum_mismatches == []
+    assert missing_candidates == []
+
+
+def test_iter_archive_matches_collects_checksum_mismatch_without_raising(tmp_path):
+    image_a = b"image-a"
+    archive_path = tmp_path / "archive.zip"
+    with zipfile.ZipFile(archive_path, "w") as archive:
+        archive.writestr("a.jpg", image_a)
+
+    candidate = {"image_id": "a", "source_checksum": _checksum(b"different-bytes")}
+    checksum_mismatches: list[dict] = []
+    missing_candidates: list[dict] = []
+
+    matches = list(
+        iter_archive_matches(
+            {"uri1": {"a.jpg": candidate}},
+            {"uri1": archive_path},
+            checksum_mismatches,
+            missing_candidates,
+        )
+    )
+
+    assert matches == []
+    assert len(checksum_mismatches) == 1
+    assert checksum_mismatches[0]["candidate"] == candidate
+    assert missing_candidates == []
+
+
+def test_iter_archive_matches_collects_missing_candidate_for_unstaged_archive():
+    candidate = {"image_id": "a", "source_checksum": _checksum(b"whatever")}
+    checksum_mismatches: list[dict] = []
+    missing_candidates: list[dict] = []
+
+    matches = list(
+        iter_archive_matches(
+            {"uri1": {"a.jpg": candidate}},
+            {},
+            checksum_mismatches,
+            missing_candidates,
+        )
+    )
+
+    assert matches == []
+    assert checksum_mismatches == []
+    assert missing_candidates == [candidate]
+
+
+def test_parse_bronze_uri_rejects_non_archive_uri():
+    try:
+        parse_bronze_uri("table:bronze.x_image_blobs/train/a")
+    except ValueError as error:
+        assert "Not a resolvable archive bronze_uri" in str(error)
+    else:
+        raise AssertionError("Expected non-archive bronze_uri to fail")

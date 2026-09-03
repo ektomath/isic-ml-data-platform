@@ -6,7 +6,7 @@ This document defines the canonical records and file outputs used by the ISIC pl
 
 - IDs are stable and should not change across pipeline runs.
 - Paths and table-row references are stored as logical storage locations, not local filesystem paths.
-- Image bytes are stored only in the Bronze image blob table.
+- Image bytes are never stored in any table, at any layer. The landing-volume source archives are the sole permanent store of image bytes; Bronze/Silver hold only checksums and archive locators, and every layer that needs actual bytes (Silver validation, Gold shard export) streams them directly from the archive instead — see `docs/decisions/006-stream-archives-no-blob-storage.md`.
 - Silver and Gold primarily store tables, manifests, and quality records.
 - All tabular outputs should be deterministic for a given source snapshot and configuration.
 
@@ -20,7 +20,7 @@ Source metadata extracted from the ISIC release and preserved without model-spec
 |---|---|---|
 | `image_id` | string | Stable ISIC identifier from `isic_id` |
 | `source_split` | string | Source archive split, for example `train` or `test` |
-| `source_uri` | string | Logical reference to the Bronze image blob row |
+| `source_uri` | string | Archive-resolvable pointer (`archive:<source_archive_uri>#<archive_member_path>`) — the only way to locate this image's bytes, since none are stored in any table |
 | `attribution` | string or null | Source attribution text |
 | `copyright_license` | string or null | Source license value |
 | `age_approx` | string or null | Approximate patient age from source metadata |
@@ -50,7 +50,7 @@ Source metadata extracted from the MILK10k release and preserved without model-s
 |---|---|---|
 | `image_id` | string | Stable ISIC identifier from `isic_id` |
 | `source_split` | string | Always `all` — MILK10k has no train/test split |
-| `source_uri` | string | Logical reference to the Bronze image blob row |
+| `source_uri` | string | Archive-resolvable pointer (`archive:<source_archive_uri>#<archive_member_path>`) — the only way to locate this image's bytes, since none are stored in any table |
 | `attribution` | string or null | Source attribution text |
 | `copyright_license` | string or null | Source license value |
 | `age_approx` | string or null | Approximate patient age from source metadata |
@@ -68,9 +68,12 @@ Source metadata extracted from the MILK10k release and preserved without model-s
 | `ingestion_run_id` | string | Links to the ingestion run |
 | `ingested_at` | timestamp | Pipeline timestamp |
 
-### `bronze.isic_2019_image_blobs`
+### `bronze.isic_2019_image_index`
 
-Source image bytes extracted from locally staged ISIC release archives and stored as Delta rows.
+An index of images extracted from locally staged ISIC release archives — checksums and archive
+locators only, no image bytes (see `docs/decisions/006-stream-archives-no-blob-storage.md`).
+Bronze ingestion still streams every archive once to compute each row's `byte_length`/
+`source_checksum`, it just never retains the bytes past that computation.
 
 | Field | Type | Notes |
 |---|---|---|
@@ -78,11 +81,10 @@ Source image bytes extracted from locally staged ISIC release archives and store
 | `source_split` | string | Source archive split, for example `train` or `test` |
 | `archive_member_path` | string | Path of the image inside the source zip archive |
 | `source_archive_uri` | string | Landing Volume URI for the original source archive |
-| `image_bytes` | binary | Original encoded image bytes |
-| `byte_length` | long | Number of encoded bytes |
-| `source_checksum` | string | SHA-256 of `image_bytes` |
+| `byte_length` | long | Number of encoded bytes, computed while streaming |
+| `source_checksum` | string | SHA-256 of the image's encoded bytes, computed while streaming |
 
-`bronze.milk10k_image_blobs` has the identical shape (`IMAGE_BLOB_SCHEMA` in `data_platform.spark_io` is the shared, dataset-agnostic schema both tables are created from) — only the table name and `source_split` values differ (always `all` for MILK10k).
+`bronze.milk10k_image_index` has the identical shape (`IMAGE_INDEX_SCHEMA` in `data_platform.spark_io` is the shared, dataset-agnostic schema both tables are created from) — only the table name and `source_split` values differ (always `all` for MILK10k).
 
 ### `bronze.ingestion_runs`
 
@@ -109,9 +111,9 @@ only table that carries rejected rows and their reasons.
 
 | Field | Type | Notes |
 |---|---|---|
-| `dataset_key` | string | Which dataset this row belongs to (`config/datasets/<dataset>.yaml`'s `dataset_key`, e.g. `isic_2019`) — this table is shared across every dataset, so this is what lets you segment or compare across them without parsing `bronze_uri` |
+| `dataset_key` | string | Which dataset this row belongs to (`config/bronze/datasets/<dataset>.yaml`'s `dataset_key`, e.g. `isic_2019`) — this table is shared across every dataset, so this is what lets you segment or compare across them without parsing `bronze_uri` |
 | `image_id` | string | Stable identifier from the source dataset. Unique together with `dataset_key`, not guaranteed globally unique on its own |
-| `bronze_uri` | string | Bronze image blob row reference |
+| `bronze_uri` | string | Archive-resolvable pointer to this image's bytes (`archive:<source_archive_uri>#<archive_member_path>`) |
 | `source_checksum` | string | SHA-256 copied from Bronze |
 | `image_width` | integer or null | Decoded width |
 | `image_height` | integer or null | Decoded height |
@@ -153,7 +155,7 @@ Rejected images and records with validation failures.
 |---|---|---|
 | `dataset_key` | string | Which dataset this rejection belongs to; see `silver.image_inventory.dataset_key` |
 | `image_id` | string | Stable identifier from the source dataset. Unique together with `dataset_key`, not guaranteed globally unique on its own |
-| `bronze_uri` | string | Original Bronze image blob row reference |
+| `bronze_uri` | string | Archive-resolvable pointer to this image's bytes (`archive:<source_archive_uri>#<archive_member_path>`) |
 | `rejection_reason` | string | Human-readable failure reason |
 | `rejected_at` | timestamp | Timestamp of rejection |
 
@@ -176,7 +178,7 @@ an image's split to be consistent across manifests).
 | `dataset_version` | string | Release tag, e.g. `sample-v1` or `v1` |
 | `dataset_key` | string | Which source dataset this row came from — `image_id` is only unique together with `dataset_key`, not globally, same convention as `silver.image_inventory` |
 | `image_id` | string | Stable identifier from the source dataset |
-| `bronze_uri` | string | Immutable Bronze image blob row reference |
+| `bronze_uri` | string | Archive-resolvable pointer to this image's bytes (`archive:<source_archive_uri>#<archive_member_path>`) — alone sufficient to find the image's bytes at Gold shard-export time, no Bronze lookup needed |
 | `source_checksum` | string | SHA-256 from Bronze |
 | `label` | string | Final normalized training label for this release — a direct passthrough of a Silver label column (e.g. `malignancy`) for `sample-v1`; a future release may source `label` from a different column (e.g. a cross-dataset `specific_diagnosis` crosswalk — not designed yet, see `docs/decisions/003-silver-label-columns-not-map.md` for why that's deliberately deferred) |
 | `group_id` | string | Leakage-control group, from `silver.leakage_groups` — no `group_id` is ever split across `split` values within one `dataset_version`. Note this only guards against leakage *within* one dataset's own groups — a duplicate image across two different `dataset_key`s in the same manifest is not currently detected, see `docs/project-checklist.md`'s Gold section |
@@ -203,10 +205,25 @@ separate write path. This is the answer to "which manifests do I have, and
 what's in each one" — query it instead of hand-writing the aggregation.
 
 **Deferred for the `sample-v1` release** (built for cheap Gold-pipeline
-iteration, not a real release): `gold.dataset_card` and the `manifest.parquet`
-export below are not generated. Both are additive and cheap to add once
-there's a real consumer — a dataset card documenting an actual released
-artifact, Parquet for a non-Spark training consumer that doesn't exist yet.
+iteration, not a real release): `gold.dataset_card` is not generated. Additive
+and cheap to add once there's a real consumer — a dataset card documenting an
+actual released artifact.
+
+### Gold shard export
+
+`notebooks/31_export_gold_shards.ipynb` packs a published `dataset_version`'s images into
+per-split MosaicML shard sets (`streaming.MDSWriter`) at
+`<storage_root>/gold/<dataset_version>/shards/<split>/`, for local-machine and Databricks
+ML-cluster training to read via `streaming.StreamingDataset`. This has no table of its own: it's
+a derived, fully rebuildable cache — never a second source of truth for image bytes —
+regenerated by rerunning the export notebook (which always fully rewrites every split's shard
+directory) rather than incrementally synced. See `docs/decisions/006-stream-archives-no-blob-storage.md`
+for why. **How long a shard export is actually kept around is a separate, currently undecided
+question** — no cleanup runs by default and no cloud-storage lifecycle policy is assumed; see
+`docs/decisions/009-gold-shard-retention-undecided.md`. Each shard sample carries `image` (raw
+encoded bytes, `bytes`), `label`, `image_id`, `dataset_key`, `group_id` (`str`) — the same
+passthrough columns `gold.manifest_rows` already has, never transformed pixels (preprocessing
+stays runtime-only, see `docs/decisions/001-preprocessing-at-runtime.md`).
 
 ### `gold.dataset_card`
 
@@ -234,14 +251,14 @@ The preprocessing configuration stored with a Gold release must include:
 
 ## File and partitioning rules
 
-- Source image bytes stay in the Bronze image blob table.
+- Source image bytes stay in the landing-volume archives only — never in a Bronze/Silver table, and never extracted as individual Volume objects at any layer (see `docs/decisions/006-stream-archives-no-blob-storage.md`).
 - Silver and Gold tables may be partitioned by dataset year or release version if the volume warrants it.
-- Do not create duplicate physical image copies in Silver or Gold.
+- Do not create duplicate physical image copies in Silver or Gold, **except** the Gold shard export (`notebooks/31_export_gold_shards.ipynb`) — a deliberate, scoped exception: the archives remain the sole source of truth, and shards are a derived, fully rebuildable cache, never a second source of truth. See `docs/decisions/006-stream-archives-no-blob-storage.md`. How long shard exports are actually kept around is a separate, undecided question — see `docs/decisions/009-gold-shard-retention-undecided.md`.
 - Do not register every image as a separate table in every layer unless the table has a clear analytical purpose.
 
 ## Validation rules
 
-- Every accepted Silver image must have a Bronze image blob reference and source checksum.
+- Every accepted Silver image must have an archive-resolvable `bronze_uri` and source checksum.
 - Every accepted Silver image must have at least one non-null label column (for example `malignancy` or `specific_diagnosis`); rows where every label column is null are rejected instead.
 - Every Gold row must map back to a Silver image_inventory row.
 - Every Gold release must be reproducible from source data, Git commit, and config files.

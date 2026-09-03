@@ -1,1 +1,0 @@
-"""Gold publishing entry point."""

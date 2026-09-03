@@ -1,0 +1,18 @@
+# Packages the sample-v1 training dataset (defined by the manifest of the same name in
+# config/gold/manifests/) into MosaicML shards -- see the top-level README.md for how manifests
+# and exports relate. Shards are packed by notebooks/31_export_gold_shards.ipynb from
+# the dataset_version's already-published gold.manifest_rows. See
+# docs/decisions/006-stream-archives-no-blob-storage.md for why shards are a derived,
+# fully rebuildable cache rather than a second source of truth.
+#
+# No retention_days field: shard retention is an open question, not yet decided -- see
+# docs/decisions/009-gold-shard-retention-undecided.md. data_platform.spark_io.remove_expired_exports
+# is available whenever/if a retention policy does get decided; it's just not wired to a
+# config value or run by default until then.
+#
+# dataset_keys and preprocessing_version are deliberately not repeated here -- both
+# are read from gold.manifest_registry at run time instead of hand-copied into a
+# second config file (same "derivable, don't duplicate" reasoning as why
+# gold.manifest_registry is a view rather than a maintained table).
+dataset_version: sample-v1
+shard_size_limit_bytes: 67108864  # 64 MiB, MDSWriter's own shard-splitting threshold -- tune once run against real image sizes

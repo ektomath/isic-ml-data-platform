@@ -68,14 +68,34 @@ def count_zip_members_by_suffix(archive_path: Path) -> dict[str, int]:
     return suffix_counts
 
 
-def iter_image_blob_rows(
+def iter_archive_image_rows(
     archive_path: Path,
     source_split: str,
     source_archive_uri: str | None = None,
+    member_predicate: Callable[[Path], bool] | None = None,
 ) -> Iterator[dict]:
-    """Yield Spark-ready binary image rows directly from a local zip archive."""
+    """Yield one dict per image directly from a local zip archive, bytes included.
+
+    This is the one shared low-level primitive for every archive-streaming
+    consumer in this project (Bronze index build, Silver validation, Gold shard
+    export) — each decides for itself how long to keep `image_bytes` past its
+    own immediate use (Bronze: drops it after hashing; Silver: drops it after
+    decode; Gold export: keeps it just long enough to write a shard sample). No
+    image bytes are ever written back to a Volume or a table by this function
+    itself, and none should be persisted by any of its callers either — see
+    docs/decisions/006-stream-archives-no-blob-storage.md.
+
+    `member_predicate`, when given, is checked (by relative in-archive path)
+    before bytes are read at all — a caller that only wants a known subset of
+    an archive's images (Silver validating a subset that survived label
+    normalization; Gold export pulling just a sampled manifest's images out of
+    a full source archive) skips reading and checksumming the rest, rather
+    than paying for every image just to discard most of them.
+    """
     for handle, member, relative_path in _iter_zip_members(archive_path):
         if not is_image_file(relative_path):
+            continue
+        if member_predicate is not None and not member_predicate(relative_path):
             continue
         image_bytes = handle.read(member)
         yield {
@@ -89,11 +109,102 @@ def iter_image_blob_rows(
         }
 
 
+def format_bronze_uri(source_archive_uri: str, archive_member_path: str) -> str:
+    """Build the archive:<source_archive_uri>#<archive_member_path> URI used to
+    locate an image's bytes — the one canonical, pure-Python definition of this
+    format, and the inverse of parse_bronze_uri below.
+
+    `data_platform.spark_io.bronze_image_uri` builds the same string as a
+    lazy Spark Column expression instead of calling this directly (it can't —
+    Spark Columns are evaluated per-row inside Spark, not by calling a plain
+    Python function once), so that one stays a separate implementation. Any
+    driver-side Python code reconstructing this string (as opposed to building a
+    Spark Column) should call this function rather than retyping the format.
+    """
+    return f"archive:{source_archive_uri}#{archive_member_path}"
+
+
+def parse_bronze_uri(bronze_uri: str) -> tuple[str, str]:
+    """Recover (source_archive_uri, archive_member_path) from a bronze_uri string.
+
+    The inverse of format_bronze_uri above (and, in Spark-Column form,
+    `data_platform.spark_io.bronze_image_uri`) — this is the only way any
+    downstream layer (Silver validation, Gold shard export) can locate an
+    image's bytes, since no layer stores them. Raises ValueError on anything
+    not in that exact shape, since a malformed bronze_uri means the image it
+    points at can never be found.
+    """
+    prefix = "archive:"
+    if not bronze_uri.startswith(prefix) or "#" not in bronze_uri:
+        raise ValueError(f"Not a resolvable archive bronze_uri: {bronze_uri!r}")
+    source_archive_uri, _, archive_member_path = bronze_uri[len(prefix) :].partition("#")
+    return source_archive_uri, archive_member_path
+
+
+def iter_archive_matches(
+    candidates_by_archive_uri: dict[str, dict[str, dict]],
+    staged_path_by_archive_uri: dict,
+    checksum_mismatches: list[dict],
+    missing_candidates: list[dict],
+) -> Iterator[tuple[dict, dict]]:
+    """Yield (candidate_row, archive_row) once per archive member successfully matched
+    and checksum-verified, streaming each referenced archive exactly once. This is the
+    one shared implementation of the archive-matching and checksum-verification pattern
+    used both by Silver validation and Gold shard export -- see
+    docs/decisions/008-immutable-source-archives-checksum-verified.md.
+
+    A generator, not a list-returning function, on purpose: don't collect it into a
+    list if a candidate's `image_bytes` (on the yielded archive_row) should be dropped
+    as soon as it's used (e.g. immediately written to a Gold shard) -- the same
+    discipline `iter_archive_image_rows` already documents for its own callers.
+
+    `candidates_by_archive_uri` groups candidate rows (each needing at least
+    `source_checksum`) by source_archive_uri and then archive_member_path -- typically
+    built by parsing a set of bronze_uri values with `parse_bronze_uri`.
+    `staged_path_by_archive_uri` maps each source_archive_uri to its locally staged
+    path; an archive_uri missing from this dict contributes only missing candidates,
+    never an error.
+
+    Appends to `checksum_mismatches` (dicts: candidate, archive_member_path,
+    expected_checksum, actual_checksum) and `missing_candidates` (candidate rows never
+    found in their archive) as a side effect during iteration -- read them only after
+    fully exhausting this generator. This function only detects mismatches/missing
+    rows, it never raises; callers decide what that means for them (raise immediately
+    vs. reject-and-continue).
+    """
+    for source_archive_uri, member_to_candidate in candidates_by_archive_uri.items():
+        staged_path = staged_path_by_archive_uri.get(source_archive_uri)
+        remaining_members = set(member_to_candidate)
+
+        if staged_path is not None:
+            for archive_row in iter_archive_image_rows(
+                staged_path,
+                source_split="",
+                source_archive_uri=source_archive_uri,
+                member_predicate=lambda path, members=remaining_members: path.as_posix() in members,
+            ):
+                remaining_members.discard(archive_row["archive_member_path"])
+                candidate_row = member_to_candidate[archive_row["archive_member_path"]]
+                if archive_row["source_checksum"] != candidate_row["source_checksum"]:
+                    checksum_mismatches.append(
+                        {
+                            "candidate": candidate_row,
+                            "archive_member_path": archive_row["archive_member_path"],
+                            "expected_checksum": candidate_row["source_checksum"],
+                            "actual_checksum": archive_row["source_checksum"],
+                        }
+                    )
+                    continue
+                yield candidate_row, archive_row
+
+        missing_candidates.extend(member_to_candidate[member] for member in remaining_members)
+
+
 def check_archives_exist(archives: list[dict]) -> None:
     """Raise FileNotFoundError if any archive's local landing path is missing.
 
     Assumes archive-based ingestion (each archive dict has `archive_local_path`/
-    `archive_dbfs_path`, e.g. from `data_platform.layout.resolve_archive_paths`) —
+    `archive_dbfs_path`, e.g. from `data_platform.dataset_layout.resolve_archive_paths`) —
     a dataset ingested from an API or another non-archive source has nothing to
     preflight here and doesn't need this function.
     """

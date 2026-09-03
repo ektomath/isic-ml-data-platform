@@ -1,5 +1,5 @@
-
-"""Shared Spark helpers for Bronze and Silver notebooks. Requires a live Spark session, not unit-testable locally.
+"""Shared Spark helpers for Bronze, Silver, Gold, and Gold-export notebooks.
+Requires a live Spark session, not unit-testable locally.
 
 Every function here is dataset-agnostic: none references an ISIC-2019-specific
 column, table, or value. A dataset's notebook supplies the dataset-specific bits
@@ -7,10 +7,20 @@ column, table, or value. A dataset's notebook supplies the dataset-specific bits
 label normalization, the resulting label column names, its own
 `normalize_labels`-shaped function) and calls these in sequence.
 
-Organized in four sections, marked below: shared low-level plumbing used by
-every layer, the Bronze pipeline, the Silver pipeline, and the Gold pipeline.
-If this file grows much further, split it into a `spark_io/` package along the
-same line instead of letting one file keep growing.
+Organized in five sections, marked below: shared low-level plumbing used by
+every layer, the Bronze pipeline, the Silver pipeline, the Gold pipeline, and
+the Gold export pipeline. This was briefly split into a `spark_io/` package
+(one submodule per section) and then merged back into this single file —
+not every pure-Python module in this project splits cleanly by medallion
+layer (`files.py`/`dataset_layout.py` are genuinely used across Bronze,
+Silver, *and* Gold export, not one layer each), and a partial, inconsistent
+application of layer-based splitting was judged not worth keeping. The one
+piece of that reorganization kept: `write_gold_shards_for_splits` (Gold shard
+packing) lives in `data_platform.shard_export` instead of here, since it
+needs no Spark session at all — an orthogonal "does this need Spark"
+distinction, the same one that already separates this module from
+`files.py`/`validate.py`/`labels.py`/`sampling.py`/`dataset_layout.py`, not a
+medallion-layer split.
 
 Never call `.cache()`/`.persist()`/`.unpersist()` anywhere in this module (or in
 any notebook cell). Databricks serverless compute does not support them —
@@ -25,11 +35,13 @@ scratch Delta table, which is supported everywhere including serverless.
 from __future__ import annotations
 
 import functools
+import time
+from collections import defaultdict
 
+import pandas as pd
 from pyspark.sql import Window
 from pyspark.sql import functions as F
 from pyspark.sql.types import (
-    BinaryType,
     BooleanType,
     IntegerType,
     LongType,
@@ -39,7 +51,14 @@ from pyspark.sql.types import (
     StructType,
 )
 
-from data_platform.files import IMAGE_SUFFIXES, count_zip_members_by_suffix, iter_image_blob_rows
+from data_platform.files import (
+    IMAGE_SUFFIXES,
+    count_zip_members_by_suffix,
+    format_bronze_uri,
+    iter_archive_image_rows,
+    iter_archive_matches,
+    parse_bronze_uri,
+)
 from data_platform.validate import MAX_DIMENSION, MIN_DIMENSION, decode_batch
 
 # ============================================================================
@@ -62,9 +81,23 @@ def merge_into(spark, df, target_table: str, key_columns: list[str], view_name: 
     )
 
 
-def bronze_image_uri(table_name: str, source_split, image_id):
-    """Build the table:<table>/<source_split>/<image_id> URI used to address a Bronze image blob row."""
-    return F.concat(F.lit(f"table:{table_name}/"), source_split, F.lit("/"), image_id)
+def bronze_image_uri(source_archive_uri, archive_member_path):
+    """Build the archive:<source_archive_uri>#<archive_member_path> URI used to locate an
+    image's bytes, as a lazy Spark Column expression.
+
+    Unlike the old table-row pointer this replaces, this URI is real and resolvable:
+    `data_platform.files.parse_bronze_uri` recovers (source_archive_uri, archive_member_path)
+    from it, and that pair alone is enough to find the image's bytes in its source archive —
+    no Bronze table lookup needed. This has to be true now, since no layer stores image bytes
+    at all (see docs/decisions/006-stream-archives-no-blob-storage.md) — the pointer is the
+    only way back to the bytes.
+
+    This builds the same string as `data_platform.files.format_bronze_uri`, just as a Spark
+    Column instead of a plain Python string — Spark Columns are evaluated per-row inside
+    Spark, so this can't just call that function directly. Driver-side Python code
+    reconstructing this string should call `format_bronze_uri` instead of retyping the format.
+    """
+    return F.concat(F.lit("archive:"), source_archive_uri, F.lit("#"), archive_member_path)
 
 
 def _scratch_table(silver_tables: dict, name: str) -> str:
@@ -151,37 +184,39 @@ def assert_controlled_vocabularies(df, controlled_vocabularies: dict[str, tuple[
 
 
 # ============================================================================
-# Bronze pipeline — write_image_blob_table/load_combined_metadata assume
+# Bronze pipeline — write_image_index_table/load_combined_metadata assume
 # archive-based ingestion (say so in their own docstrings); write_ingestion_run
 # and print_bronze_outputs are ingestion-source-agnostic.
+#
+# No image bytes are ever written here — write_image_index_table streams each
+# archive only to compute checksum/byte_length, and records where the image
+# lives (source_archive_uri + archive_member_path), never the bytes themselves.
+# See docs/decisions/006-stream-archives-no-blob-storage.md.
 # ============================================================================
 
-IMAGE_BLOB_SCHEMA = StructType(
+IMAGE_INDEX_SCHEMA = StructType(
     [
         StructField("image_id", StringType(), False),
         StructField("source_split", StringType(), False),
         StructField("archive_member_path", StringType(), False),
         StructField("source_archive_uri", StringType(), True),
-        StructField("image_bytes", BinaryType(), False),
         StructField("byte_length", LongType(), False),
         StructField("source_checksum", StringType(), False),
     ]
 )
-IMAGE_BLOB_WRITE_BATCH_MAX_BYTES = 1024 * 1024 * 1024
-IMAGE_BLOB_WRITE_BATCH_MAX_ROWS = 10_000
+IMAGE_INDEX_WRITE_BATCH_MAX_ROWS = 10_000
 
 
-def write_image_blob_table(
+def write_image_index_table(
     spark,
     archives: list[dict],
     target_table: str,
-    batch_max_bytes: int = IMAGE_BLOB_WRITE_BATCH_MAX_BYTES,
-    batch_max_rows: int = IMAGE_BLOB_WRITE_BATCH_MAX_ROWS,
+    batch_max_rows: int = IMAGE_INDEX_WRITE_BATCH_MAX_ROWS,
 ):
-    """Read image bytes from locally staged zip archives and write them to
-    target_table in bounded batches, deduping (image_id, source_split) in memory
-    before any bytes hit storage. Returns image_manifest_df (image_id, source_split,
-    source_uri, source_checksum) read back from the written table.
+    """Stream locally staged zip archives to compute each image's checksum/byte_length
+    and write index rows (no image bytes) to target_table in bounded batches, deduping
+    (image_id, source_split) in memory first. Returns image_manifest_df (image_id,
+    source_split, source_uri, source_checksum) read back from the written table.
 
     Each archive dict needs `staged_archive_path`, `source_split`, `archive_dbfs_path`,
     and `archive_filename` already set (e.g. by
@@ -193,7 +228,7 @@ def write_image_blob_table(
 
     def flush(batch_rows):
         is_first = total_images_written == 0
-        writer = spark.createDataFrame(batch_rows, schema=IMAGE_BLOB_SCHEMA).write.mode(
+        writer = spark.createDataFrame(batch_rows, schema=IMAGE_INDEX_SCHEMA).write.mode(
             "overwrite" if is_first else "append"
         )
         if is_first:
@@ -202,10 +237,9 @@ def write_image_blob_table(
 
     for archive in archives:
         batch = []
-        batch_bytes = 0
         images_written_before_archive = total_images_written
 
-        for row in iter_image_blob_rows(
+        for row in iter_archive_image_rows(
             archive_path=archive["staged_archive_path"],
             source_split=archive["source_split"],
             source_archive_uri=archive["archive_dbfs_path"],
@@ -215,13 +249,12 @@ def write_image_blob_table(
                 continue
             seen_keys.add(key)
 
+            row.pop("image_bytes")
             batch.append(row)
-            batch_bytes += row["byte_length"]
-            if batch_bytes >= batch_max_bytes or len(batch) >= batch_max_rows:
+            if len(batch) >= batch_max_rows:
                 flush(batch)
                 total_images_written += len(batch)
                 batch = []
-                batch_bytes = 0
 
         if batch:
             flush(batch)
@@ -239,17 +272,17 @@ def write_image_blob_table(
                 f"{archive['archive_filename']}; archive contains file types: {suffix_counts}"
             )
 
-        print(f"Wrote {archive_images_written} image rows for {archive['source_split']}")
+        print(f"Wrote {archive_images_written} index rows for {archive['source_split']}")
 
-    image_blob_df = spark.table(target_table)
-    image_manifest_df = image_blob_df.select(
+    image_index_df = spark.table(target_table)
+    image_manifest_df = image_index_df.select(
         F.col("image_id"),
         F.col("source_split"),
-        bronze_image_uri(target_table, F.col("source_split"), F.col("image_id")).alias("source_uri"),
+        bronze_image_uri(F.col("source_archive_uri"), F.col("archive_member_path")).alias("source_uri"),
         F.col("source_checksum"),
     )
 
-    print(f"Images written to blob table: {total_images_written}")
+    print(f"Images indexed: {total_images_written}")
 
     return image_manifest_df
 
@@ -309,8 +342,8 @@ def print_bronze_outputs(
     spark, dbutils, display, landing_paths: dict, bronze_paths: dict, bronze_tables: dict, dataset_name: str
 ) -> None:
     """Print/display Bronze ingestion outputs: landed archive contents, Bronze metadata
-    path contents, image blob row counts by split, recent ingestion runs for this
-    dataset, a metadata sample, and a sample image row. `image_blobs`/`source_metadata`
+    path contents, image index row counts by split, recent ingestion runs for this
+    dataset, a metadata sample, and a sample index row. `image_index`/`source_metadata`
     are already dataset-specific tables (no filter needed); `ingestion_runs` is shared
     across datasets, so it's filtered by `dataset_name`.
 
@@ -323,8 +356,8 @@ def print_bronze_outputs(
     print("Bronze metadata path contents:")
     display(dbutils.fs.ls(bronze_paths["metadata"]))
 
-    print("Bronze image blob rows by split:")
-    display(spark.table(bronze_tables["image_blobs"]).groupBy("source_split").count())
+    print("Bronze image index rows by split:")
+    display(spark.table(bronze_tables["image_index"]).groupBy("source_split").count())
 
     print("Recent ingestion runs:")
     display(
@@ -336,8 +369,8 @@ def print_bronze_outputs(
     print("Source metadata sample:")
     display(spark.table(bronze_tables["source_metadata"]))
 
-    print("Sample image row:")
-    display(spark.table(bronze_tables["image_blobs"]).limit(1))
+    print("Sample index row:")
+    display(spark.table(bronze_tables["image_index"]).limit(1))
 
 
 # ============================================================================
@@ -378,33 +411,35 @@ GROUP_SOURCE_MAP = F.create_map(*[F.lit(item) for pair in GROUP_SOURCE_BY_TYPE.i
 
 
 def reconcile_bronze_records(spark, bronze_tables: dict, silver_tables: dict, dataset_key: str):
-    """Reject any Bronze image blob with no matching source metadata row.
+    """Reject any Bronze image index row with no matching source metadata row.
 
-    An orphan blob is otherwise invisible to every downstream check, since the
-    rest of the pipeline only ever looks from metadata to blobs, never the other
+    An orphan index row is otherwise invisible to every downstream check, since the
+    rest of the pipeline only ever looks from metadata to the index, never the other
     way. Returns the loaded Bronze source metadata DataFrame.
     """
     source_metadata_df = spark.table(bronze_tables["source_metadata"])
 
-    image_blob_keys_df = spark.table(bronze_tables["image_blobs"]).select("image_id", "source_split")
+    image_index_keys_df = spark.table(bronze_tables["image_index"]).select(
+        "image_id", "source_split", "source_archive_uri", "archive_member_path"
+    )
     metadata_keys_df = source_metadata_df.select("image_id", "source_split")
 
-    orphan_blobs_df = (
-        image_blob_keys_df
+    orphan_index_rows_df = (
+        image_index_keys_df
         .join(metadata_keys_df, on=["image_id", "source_split"], how="left_anti")
         .withColumn(
             "bronze_uri",
-            bronze_image_uri(bronze_tables["image_blobs"], F.col("source_split"), F.col("image_id")),
+            bronze_image_uri(F.col("source_archive_uri"), F.col("archive_member_path")),
         )
     )
 
     reject_rows(
         spark,
-        orphan_blobs_df,
+        orphan_index_rows_df,
         silver_tables["rejected_records"],
         dataset_key,
         F.lit("no matching Bronze source metadata"),
-        description="Bronze image blobs with no matching source metadata (rejected)",
+        description="Bronze image index rows with no matching source metadata (rejected)",
     )
 
     return source_metadata_df
@@ -477,50 +512,133 @@ def apply_label_normalization(
 def validate_images(
     spark,
     label_valid_df,
-    bronze_tables: dict,
+    archives: list[dict],
     silver_tables: dict,
     dataset_key: str,
     bronze_uri_col: str = "source_uri",
     min_dimension: int = MIN_DIMENSION,
     max_dimension: int = MAX_DIMENSION,
+    decode_flush_rows: int = 2000,
 ):
-    """Left-join label-valid rows to the Bronze image blob table, reject rows with no
-    matching blob, decode+validate the rest via `decode_batch` (batched via
-    `mapInPandas`), reject decode/dimension failures, and return the DataFrame of
-    valid, decoded images.
+    """Stream each archive in `archives` (already locally staged, e.g. by
+    `data_platform.files.stage_archives_and_extract_metadata`) looking only for
+    `label_valid_df`'s candidate images, decode+validate each one found via
+    `data_platform.validate.decode_batch`, reject anything missing from its archive
+    or failing decode/dimension validation, and return the DataFrame of valid,
+    decoded images.
 
-    `min_dimension`/`max_dimension` default to `data_platform.validate`'s defaults;
-    override them for a dataset whose images are a structurally different size range
-    (see docs/silver_validation_rules.md).
+    No image bytes are ever joined from a Bronze table or persisted anywhere — each
+    candidate's bytes are read from its source archive, decoded, and discarded within
+    this function (see docs/decisions/006-stream-archives-no-blob-storage.md). Archive
+    streaming happens driver-side, the same already-proven access pattern Bronze
+    ingestion uses (`write_image_index_table`), rather than distributing byte reads
+    across executors.
+
+    Each freshly-streamed image's checksum is compared against `source_checksum` already
+    recorded on `label_valid_df` (Bronze's, computed at ingestion time) — raises
+    immediately (does not just reject the affected rows) if any mismatch, since that
+    means the source archive changed after ingestion, violating the immutability every
+    downstream `bronze_uri` reference depends on, not routine per-row data variance. See
+    docs/decisions/008-immutable-source-archives-checksum-verified.md.
+
+    `archives` must be the same list shape `resolve_archive_paths`/
+    `stage_archives_and_extract_metadata` already produce elsewhere in this project,
+    staged locally before this call. `min_dimension`/`max_dimension` default to
+    `data_platform.validate`'s defaults; override them for a dataset whose images are
+    a structurally different size range (see docs/silver_validation_rules.md).
     """
-    image_blobs_df = spark.table(bronze_tables["image_blobs"]).select("image_id", "source_split", "image_bytes")
-    label_valid_with_bytes_df = materialize(
-        spark,
-        label_valid_df.join(image_blobs_df, on=["image_id", "source_split"], how="left"),
-        _scratch_table(silver_tables, "label_valid_with_bytes"),
-    )
+    candidate_rows = label_valid_df.select(
+        "image_id", "source_split", "source_checksum", F.col(bronze_uri_col).alias("bronze_uri")
+    ).collect()
 
-    missing_blob_df = label_valid_with_bytes_df.where(F.col("image_bytes").isNull())
-    matched_with_bytes_df = label_valid_with_bytes_df.where(F.col("image_bytes").isNotNull())
+    candidates_by_archive_uri: dict[str, dict[str, dict]] = defaultdict(dict)
+    for row in candidate_rows:
+        source_archive_uri, archive_member_path = parse_bronze_uri(row["bronze_uri"])
+        candidates_by_archive_uri[source_archive_uri][archive_member_path] = {
+            "image_id": row["image_id"],
+            "source_split": row["source_split"],
+            "source_checksum": row["source_checksum"],
+        }
 
-    reject_rows(
-        spark,
-        missing_blob_df,
-        silver_tables["rejected_records"],
-        dataset_key,
-        F.lit("missing Bronze image blob"),
-        bronze_uri_col=bronze_uri_col,
-        description="Label-valid rows missing a Bronze image blob (rejected)",
-    )
+    staged_path_by_archive_uri = {archive["archive_dbfs_path"]: archive["staged_archive_path"] for archive in archives}
 
-    decode_fn = functools.partial(decode_batch, min_dimension=min_dimension, max_dimension=max_dimension)
-    decoded_df = materialize(
-        spark,
-        matched_with_bytes_df
-        .select("image_id", "source_split", F.col(bronze_uri_col).alias("bronze_uri"), "image_bytes")
-        .mapInPandas(decode_fn, schema=DECODE_OUTPUT_SCHEMA),
-        _scratch_table(silver_tables, "decoded_images"),
-    )
+    scratch_table = _scratch_table(silver_tables, "decoded_images")
+    total_decoded = 0
+
+    def flush(pending_rows: list[dict]) -> None:
+        nonlocal total_decoded
+        is_first = total_decoded == 0
+        decode_fn = functools.partial(decode_batch, min_dimension=min_dimension, max_dimension=max_dimension)
+        for output_df in decode_fn(iter([pd.DataFrame(pending_rows)])):
+            writer = spark.createDataFrame(output_df, schema=DECODE_OUTPUT_SCHEMA).write.mode(
+                "overwrite" if is_first else "append"
+            )
+            if is_first:
+                writer = writer.option("overwriteSchema", "true")
+            writer.saveAsTable(scratch_table)
+        total_decoded += len(pending_rows)
+
+    checksum_mismatches: list[dict] = []
+    missing_candidates: list[dict] = []
+    pending_rows: list[dict] = []
+
+    # Not a per-row data-quality issue when a mismatch turns up below -- the source
+    # archive itself changed since Bronze ingestion computed source_checksum, which
+    # breaks the immutability invariant every downstream reference (bronze_uri, and
+    # eventually a Gold manifest) depends on. See
+    # docs/decisions/008-immutable-source-archives-checksum-verified.md.
+    for candidate_row, archive_row in iter_archive_matches(
+        candidates_by_archive_uri, staged_path_by_archive_uri, checksum_mismatches, missing_candidates
+    ):
+        pending_rows.append(
+            {
+                "image_id": candidate_row["image_id"],
+                "source_split": candidate_row["source_split"],
+                "bronze_uri": format_bronze_uri(archive_row["source_archive_uri"], archive_row["archive_member_path"]),
+                "image_bytes": archive_row["image_bytes"],
+            }
+        )
+        if len(pending_rows) >= decode_flush_rows:
+            flush(pending_rows)
+            pending_rows = []
+
+    if pending_rows:
+        flush(pending_rows)
+
+    if checksum_mismatches:
+        formatted_mismatches = [
+            {
+                "image_id": mismatch["candidate"]["image_id"],
+                "archive_member_path": mismatch["archive_member_path"],
+                "expected_checksum": mismatch["expected_checksum"],
+                "actual_checksum": mismatch["actual_checksum"],
+            }
+            for mismatch in checksum_mismatches
+        ]
+        raise RuntimeError(
+            f"{len(checksum_mismatches)} image(s) no longer match the checksum Bronze recorded "
+            f"at ingestion time -- the source archive changed after ingestion, which breaks "
+            f"reproducibility for anything already built from it. First few: "
+            f"{formatted_mismatches[:5]}. Source archives must never change after ingestion; a "
+            f"genuine source update needs a new source_version and a fresh ingestion, not an "
+            f"in-place archive edit. See docs/decisions/008-immutable-source-archives-checksum-verified.md."
+        )
+
+    decoded_df = spark.table(scratch_table) if total_decoded else spark.createDataFrame([], schema=DECODE_OUTPUT_SCHEMA)
+
+    if missing_candidates:
+        unmatched_image_ids = [candidate["image_id"] for candidate in missing_candidates]
+        missing_ids_df = spark.createDataFrame([{"image_id": image_id} for image_id in unmatched_image_ids], "image_id STRING")
+        missing_df = label_valid_df.join(missing_ids_df, on="image_id", how="inner")
+        reject_rows(
+            spark,
+            missing_df,
+            silver_tables["rejected_records"],
+            dataset_key,
+            F.lit("missing from source archive"),
+            bronze_uri_col=bronze_uri_col,
+            description="Label-valid rows missing from their source archive (rejected)",
+        )
 
     image_invalid_df = decoded_df.where(~F.col("valid"))
     image_valid_df = decoded_df.where(F.col("valid"))
@@ -714,14 +832,14 @@ def build_gold_candidate_groups(spark, silver_tables: dict, dataset_key: str, la
     The representative label is label_column's value on the lexicographically-first
     image_id in the group — a deliberate simplification, not a bug: most groups share
     one label across every image in them, and a small sample manifest doesn't need
-    exact per-image precision here (see data_platform.gold's own docstring for the
+    exact per-image precision here (see data_platform.sampling's own docstring for the
     same discipline applied to sampling/splitting).
 
     Metadata-only aggregation over the full accepted table for dataset_key (no image
     bytes, no materialize() needed — this is a cheap groupBy, not a byte-heavy join or
     a mapInPandas pass), then collected to the driver: one small row per *group*, not
     per image, so this stays cheap even at tens of thousands of source rows. Returns a
-    plain list of dicts so data_platform.gold's sampling logic never needs Spark.
+    plain list of dicts so data_platform.sampling's logic never needs Spark.
     """
     inventory_df = (
         spark.table(silver_tables["image_inventory"])
@@ -769,7 +887,7 @@ def write_gold_manifest_rows(
     being explicit, never implicit).
 
     sample_seed and split_seed are recorded as separate columns, not just used
-    internally by data_platform.gold.select_sample_and_splits — so a later query
+    internally by data_platform.sampling.select_sample_and_splits — so a later query
     against gold.manifest_registry can verify two manifests really did draw from
     the same image pool (same sample_seed) even if their split_seed or
     preprocessing_version differ, rather than having to trust that from outside
@@ -847,3 +965,112 @@ def print_gold_outputs(
             f"{leaking_group_count} group_id(s) span more than one split within "
             f"dataset_version={dataset_version!r} — leakage-control invariant violated."
         )
+
+
+# ============================================================================
+# Gold export pipeline — load_manifest_rows_for_export, print_export_outputs,
+# remove_expired_exports, called in that order from
+# notebooks/31_export_gold_shards.ipynb, after a dataset_version's manifest rows
+# already exist (written by write_gold_manifest_rows above). The actual
+# shard-packing step between these two, `write_gold_shards_for_splits`, needs no
+# Spark session at all and lives in `data_platform.shard_export` instead — see
+# that module's docstring for why.
+#
+# Shards are a fully rebuildable, derived cache — never a second source of
+# truth for image bytes, same as every other layer in this project — see
+# docs/decisions/006-stream-archives-no-blob-storage.md. Retention itself is
+# an open question, not decided — see
+# docs/decisions/009-gold-shard-retention-undecided.md.
+# ============================================================================
+
+
+def load_manifest_rows_for_export(spark, gold_tables: dict, dataset_version: str) -> dict[str, list[dict]]:
+    """Driver-collect gold.manifest_rows for one release, grouped by split.
+
+    Metadata-only (image_id, dataset_key, bronze_uri, source_checksum, label, group_id)
+    — no image bytes touched here. source_checksum is carried through so
+    `data_platform.shard_export.write_gold_shards_for_splits` can verify each image is
+    still what the manifest recorded
+    (docs/decisions/008-immutable-source-archives-checksum-verified.md).
+    Returns {split: [row_dict, ...]}, ready for write_gold_shards_for_splits to stream
+    bytes for, one split at a time.
+    """
+    manifest_df = (
+        spark.table(gold_tables["manifest_rows"])
+        .where(F.col("dataset_version") == dataset_version)
+        .select("image_id", "dataset_key", "bronze_uri", "source_checksum", "label", "group_id", "split")
+    )
+
+    rows_by_split: dict[str, list[dict]] = defaultdict(list)
+    for row in manifest_df.collect():
+        rows_by_split[row["split"]].append(row.asDict())
+
+    return dict(rows_by_split)
+
+
+def print_export_outputs(spark, display, dataset_version: str, per_split_summaries: dict) -> None:
+    """Print/display Gold shard export outputs for one dataset_version: sample count
+    per split, cross-checked against gold.manifest_registry's counts for the same
+    release — raises if they don't match, same "verify, don't just trust
+    construction" posture as print_gold_outputs's leakage check. A shard set should
+    always contain exactly the manifest's rows, never more or fewer.
+    """
+    registry_rows = spark.table("gold.manifest_registry").where(F.col("dataset_version") == dataset_version).collect()
+    if not registry_rows:
+        raise ValueError(
+            f"No gold.manifest_registry row for dataset_version={dataset_version!r} — "
+            "run the Gold manifest notebook (30_create_gold_manifest.ipynb) first."
+        )
+    registry_row = registry_rows[0]
+
+    expected_by_split = {
+        "train": registry_row["train_count"],
+        "validation": registry_row["validation_count"],
+        "test": registry_row["test_count"],
+    }
+
+    print(f"Shard export summary for dataset_version={dataset_version!r}:")
+    mismatches = []
+    for split, expected_count in expected_by_split.items():
+        written_count = per_split_summaries.get(split, {}).get("sample_count", 0)
+        print(f"  {split}: {written_count} samples written (manifest has {expected_count})")
+        if written_count != expected_count:
+            mismatches.append((split, expected_count, written_count))
+
+    if mismatches:
+        raise ValueError(
+            f"Shard sample counts do not match gold.manifest_registry for "
+            f"dataset_version={dataset_version!r}: {mismatches}"
+        )
+
+
+def remove_expired_exports(dbutils, gold_root: str, max_age_days: int) -> list[str]:
+    """Delete <dataset_version> shard-export subdirectories of gold_root whose most
+    recent modification is older than max_age_days. Returns the list of paths removed.
+
+    General-purpose utility, not wired into any default flow and not scheduled —
+    shard retention is an open question, not a decided policy (see
+    docs/decisions/009-gold-shard-retention-undecided.md). Deleting a stale export
+    costs nothing but a future rerun of 31_export_gold_shards.ipynb to rebuild it, since
+    shards are always a derived, fully rebuildable cache
+    (docs/decisions/006-stream-archives-no-blob-storage.md) — but nothing in this
+    project currently calls this on any automatic basis. Call it directly, with an
+    explicit max_age_days, whenever/if a retention decision actually gets made.
+
+    Takes `dbutils`, not `spark` — a Databricks-runtime-injected object like `spark`,
+    but not "Spark" itself; this lives here rather than in a pure-Python module for
+    that reason, even though it needs no Spark session.
+    """
+    cutoff_seconds = max_age_days * 86400
+    now = time.time()
+    removed = []
+
+    for entry in dbutils.fs.ls(gold_root):
+        if not entry.isDir():
+            continue
+        age_seconds = now - (entry.modificationTime / 1000)
+        if age_seconds >= cutoff_seconds:
+            dbutils.fs.rm(entry.path, recurse=True)
+            removed.append(entry.path)
+
+    return removed

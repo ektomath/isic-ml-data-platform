@@ -1,6 +1,10 @@
 # 002. Store Bronze images as Delta blob rows
 
-Status: accepted
+Status: superseded by [006](006-stream-archives-no-blob-storage.md) — storing image bytes at
+all, even as Delta rows instead of one Volume object per image, turned out to be unneeded
+duplication of data the source archives already hold safely and checksummably. The per-object
+cost lesson this ADR captures is still correct and still the reason Bronze/Silver/Gold never
+write one file per image; only the "store bytes in a Delta table" half of the fix was replaced.
 
 The ISIC 2019 source archives contain tens of thousands of images. Extracting every archive member directly into a Unity Catalog Volume creates one cloud object per JPEG and turns ingestion into many small storage operations.
 

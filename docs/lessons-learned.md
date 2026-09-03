@@ -8,6 +8,6 @@ The first version of Bronze ingestion extracted each archive member (image) dire
 
 **Lesson:** on cloud object storage, operation count costs more than byte count, which should be taken into account.
 
-**Fix:** stage the archive once from the landing Volume to local cluster disk, extract and read members from local disk, and write image bytes as binary rows into a Delta table instead of one object per image. See `docs/decisions/002-store-bronze-images-as-delta-blobs.md` and `data_platform.files.iter_image_blob_rows`.
+**Fix:** stage the archive once from the landing Volume to local cluster disk, and extract and read members from local disk instead of one object per image. The original fix additionally wrote image bytes as binary rows into a Delta table (`docs/decisions/002-store-bronze-images-as-delta-blobs.md`); that part was later superseded — no image bytes are stored anywhere at any layer now, not even as Delta rows, since the archives already hold them safely and checksummably (`docs/decisions/006-stream-archives-no-blob-storage.md`). See `data_platform.files.iter_archive_image_rows`.
 
 **Side note**  As a bonus, notebook runtime dropped from 90 minutes to 5

@@ -1,3 +1,5 @@
+# Source dataset ingestion config -- see the top-level README.md's config/ overview.
+#
 # MILK10k — second dataset, onboarded from the ISIC Archive.
 # Single release, no train/test split (unlike isic_2019).
 #
@@ -9,7 +11,6 @@ dataset_name: isic/milk10k
 source_version: "milk10k"
 bronze_prefix: milk10k
 silver_prefix: silver/milk10k
-gold_prefix: null
 archives:
   - source_split: all
     archive_filename: milk10k.zip

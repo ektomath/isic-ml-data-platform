@@ -1,5 +1,9 @@
-"""Pure-Python Gold sampling and split-assignment logic. No Spark dependency,
-unit-tested locally like data_platform.labels/validate (see tests/test_gold.py).
+"""Pure-Python sampling and split-assignment logic for Gold manifest releases
+(renamed from gold.py -- named after what this module does, matching
+files.py/validate.py/labels.py, rather than which medallion layer calls it;
+it's the only thing in here, not a general home for "Gold stuff"). No Spark
+dependency, unit-tested locally like data_platform.labels/validate (see
+tests/test_sampling.py).
 
 Operates on small, driver-side per-leakage-group summaries — already aggregated
 in Spark and collected back by data_platform.spark_io.build_gold_candidate_groups
@@ -25,10 +29,13 @@ def _fill_whole_groups_by_quota(
     quotas: dict[str, int],
     seed_prefix: str,
 ) -> list[GroupSummary]:
-    """Shared greedy whole-group fill: for each label (sorted, for determinism),
-    sort its groups by group_id, shuffle deterministically, then add whole groups
-    until quotas[label] is reached (accepting the last group's overshoot rather
-    than splitting it)."""
+    """Greedy whole-group fill used by the sample-selection stage below: for each
+    label (sorted, for determinism), sort its groups by group_id, shuffle
+    deterministically, then add whole groups until quotas[label] is reached
+    (accepting the last group's overshoot rather than splitting it). The
+    split-assignment stage further down needs slightly different quota-overshoot
+    handling (remainder goes to the last split, not dropped) so it doesn't call
+    this — not actually shared across both stages despite the similar shape."""
     selected: list[GroupSummary] = []
     for label in sorted(groups_by_label):
         label_groups = sorted(groups_by_label[label], key=lambda g: g["group_id"])

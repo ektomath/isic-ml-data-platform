@@ -7,8 +7,8 @@ An Azure and Databricks-based ISIC 2019 data platform that turns raw images and 
 ## What this repository contains
 
 - `src/`: pipeline implementation for ingest, validate, publish, and train
-- `src/data_platform/`: shared, dataset-agnostic helpers — `files.py` (filesystem/archive handling), `layout.py` (dataset layout/config), `validate.py` (image validation), `labels.py` (canonical label vocabulary and diagnosis-hierarchy normalization, shared by every onboarded dataset so far), `gold.py` (pure-Python Gold sampling and leakage-aware split assignment), `spark_io.py` (Bronze/Silver/Gold Spark pipeline functions), `datasets/` (a landing spot for a *future* dataset whose label logic doesn't fit `labels.py`'s shape — empty until one needs it)
-- `config/`: versioned pipeline, preprocessing, and shared storage-root settings — `config/datasets/<dataset>.yaml` per onboarded dataset, `config/gold/manifests/<name>.yaml` per Gold manifest release
+- `src/data_platform/`: shared, dataset-agnostic helpers — `files.py` (filesystem/archive handling), `dataset_layout.py` (per-dataset Volume paths/table names, scoped to one dataset — not Gold, see the module docstring), `validate.py` (image validation), `labels.py` (canonical label vocabulary and diagnosis-hierarchy normalization, shared by every onboarded dataset so far), `sampling.py` (pure-Python Gold sampling and leakage-aware split assignment), `shard_export.py` (pure-Python Gold shard packing — no Spark session needed, kept separate from `spark_io.py` for that reason), `spark_io.py` (Bronze/Silver/Gold Spark pipeline functions), `datasets/` (a landing spot for a *future* dataset whose label logic doesn't fit `labels.py`'s shape — empty until one needs it)
+- `config/`: versioned pipeline, preprocessing, and shared storage-root settings. `bronze/datasets/<dataset>.yaml` per onboarded source dataset (Bronze/Silver notebooks); `gold/manifests/<name>.yaml` per Gold manifest release (`30_create_gold_manifest.ipynb`) and `gold/exports/<name>.yaml` per shard export of an already-published manifest (`31_export_gold_shards.ipynb`); `storage.yaml`, `pipeline.yaml`, `preprocessing.yaml` are cross-cutting, not scoped to one dataset or release
 - `tests/`: fixture-backed checks that do not require the full ISIC dataset
 - `docs/`: architecture, data contract, Silver validation rules, ADRs (`docs/decisions/`), project checklist, and lessons learned
 - `AGENT.md`: canonical repo-local agent instructions and working context
@@ -16,7 +16,7 @@ An Azure and Databricks-based ISIC 2019 data platform that turns raw images and 
 
 ## Architecture
 
-The platform keeps source archives in a landing volume, stores raw image bytes in a Bronze Delta table, validates and normalizes records in Silver, and publishes a versioned training manifest in Gold.
+The platform keeps source archives in a landing volume as the sole permanent store of image bytes (no image bytes are ever stored in a table, or extracted as individual Volume objects, at any layer — see `docs/decisions/006-stream-archives-no-blob-storage.md`), validates and normalizes records in Silver by streaming candidate images directly from those archives, publishes a versioned training manifest in Gold, and packs a published manifest's images into a derived MosaicML shard export for training.
 
 See [docs/architecture.md](docs/architecture.md) for the system layout, Unity Catalog storage structure, and Databricks execution model.
 
@@ -71,4 +71,5 @@ In general my workflow is to generate smaller sections of code in chunks rather 
 - `notebooks/isic_2019/20_silver_validate.ipynb`: label normalization, image validation, and leakage-control grouping for ISIC 2019
 - `notebooks/milk10k/05_setup_tables_and_folders.ipynb`, `10_bronze_ingest.ipynb`, `20_silver_validate.ipynb`: the same flow for MILK10k, the second onboarded dataset
 - `notebooks/30_create_gold_manifest.ipynb`: publishes a `gold.manifest_rows` release spanning every included dataset in one run (top-level, not under a dataset folder). Currently a `sample-v1` release (~100 images per dataset, `malignancy` label) built to iterate on the Gold pipeline cheaply, not the full-scale release. `gold.manifest_registry` (a view) gives an overview of every release published so far
+- `notebooks/31_export_gold_shards.ipynb`: packs a published `dataset_version`'s images into a derived, per-split MosaicML shard export (`streaming.MDSWriter`), streamed directly from the source archives — for local-machine and Databricks ML-cluster training to read via `streaming.StreamingDataset`. Fully rebuildable from the manifest and archives; see `docs/decisions/006-stream-archives-no-blob-storage.md`. How long an export is kept around is undecided — see `docs/decisions/009-gold-shard-retention-undecided.md`
 

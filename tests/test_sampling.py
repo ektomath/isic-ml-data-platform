@@ -1,4 +1,4 @@
-from data_platform.gold import select_sample_and_splits
+from data_platform.sampling import select_sample_and_splits
 
 
 def _make_groups():

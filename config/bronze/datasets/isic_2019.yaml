@@ -1,9 +1,11 @@
+# Source dataset ingestion config -- see the top-level README.md's config/ overview. Consumed by isic_2019's
+# Bronze/Silver notebooks and by 31_export_gold_shards.ipynb (any Gold release that
+# includes this dataset_key resolves its archives back through here).
 dataset_key: isic_2019
 dataset_name: isic/2019
 source_version: "2019"
 bronze_prefix: isic_2019
 silver_prefix: silver/isic_2019
-gold_prefix: null
 archives:
   - source_split: train
     archive_filename: ISIC-2019-train-images.zip
