@@ -183,9 +183,9 @@ an image's split to be consistent across manifests).
 | `label` | string | Final normalized training label for this release — a direct passthrough of a Silver label column (e.g. `malignancy`) for `sample-v1`; a future release may source `label` from a different column (e.g. a cross-dataset `specific_diagnosis` crosswalk — not designed yet, see `docs/decisions/003-silver-label-columns-not-map.md` for why that's deliberately deferred) |
 | `group_id` | string | Leakage-control group, from `silver.leakage_groups` — no `group_id` is ever split across `split` values within one `dataset_version`. Note this only guards against leakage *within* one dataset's own groups — a duplicate image across two different `dataset_key`s in the same manifest is not currently detected, see `docs/project-checklist.md`'s Gold section |
 | `split` | string | `train`, `validation`, or `test` |
-| `sample_seed` | integer | Seed used to select which images are in this manifest at all — deliberately separate from `split_seed`, so a later release can reuse the exact same image pool (e.g. the same selection under a different `preprocessing_version`) while only `split_seed` differs, or vice versa |
+| `sample_seed` | integer | Seed used to select which images are in this manifest at all — deliberately separate from `split_seed`, so a later release can reuse the exact same image pool (e.g. the same selection under a different `preprocessing_version`) while only `split_seed` differs, or vice versa. Reusing `sample_seed` this way is cheap at the manifest level (metadata rows only) — but see the Gold shard export section below before also exporting shards for both: doing so duplicates identical bytes for no benefit until there's training code that actually applies `preprocessing_version` (`docs/decisions/010-pin-data-and-preprocessing-per-training-run.md`) |
 | `split_seed` | integer | Seed used to divide the selected images into `train`/`validation`/`test` |
-| `preprocessing_version` | string | Version of preprocessing config (`config/preprocessing.yaml`) used for this release |
+| `preprocessing_version` | string | Opaque version tag for this release's intended preprocessing (e.g. `"sample-v1"`) — not currently backed by a versioned config file; see the `gold.preprocessing.yaml` contract below for what one should contain whenever it gets built |
 | `manifest_row_hash` | string | `sha2`-256 over `dataset_key`\|`image_id`\|`label`\|`split`\|`source_checksum`, for row-level integrity checking |
 | `created_at` | timestamp | When this row was (last) written — refreshed on rerun, same convention as `silver.image_inventory.validated_at`; not a strict immutable-creation guarantee |
 
@@ -224,6 +224,13 @@ question** — no cleanup runs by default and no cloud-storage lifecycle policy 
 encoded bytes, `bytes`), `label`, `image_id`, `dataset_key`, `group_id` (`str`) — the same
 passthrough columns `gold.manifest_rows` already has, never transformed pixels (preprocessing
 stays runtime-only, see `docs/decisions/001-preprocessing-at-runtime.md`).
+
+**A shard export is keyed by `dataset_version` alone, never by `preprocessing_version`.** Exporting
+shards writes raw, unpreprocessed bytes regardless of what a manifest's `preprocessing_version`
+says — two `dataset_version`s that select the exact same images but differ only in
+`preprocessing_version` would export two byte-for-byte identical shard sets. Don't export shards
+for a `dataset_version` created solely to carry a different `preprocessing_version` label; see
+`docs/decisions/010-pin-data-and-preprocessing-per-training-run.md`.
 
 ### `gold.dataset_card`
 

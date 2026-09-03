@@ -34,7 +34,7 @@ Silver (`silver.image_inventory`, `silver.leakage_groups`, `silver.rejected_reco
 |---|---|---|
 | Bronze | Preserve the source faithfully | Image index (checksums, archive locators — no image bytes), raw metadata, raw labels, ingestion logs |
 | Silver | Produce a trustworthy canonical view | Image inventory, normalized labels, validation results, leakage-control groups, rejected rows |
-| Gold | Publish training-ready data products | Versioned manifest, preprocessing config, dataset card, derived per-release MosaicML shard export |
+| Gold | Publish training-ready data products | Versioned manifest, dataset card (deferred), derived per-release MosaicML shard export |
 
 ## Databricks structure
 
@@ -45,8 +45,9 @@ Catalog: derm_showcase_project
   Schema: bronze
     Tables:
       ingestion_runs
-      isic_2019_image_index
-      isic_2019_source_metadata
+      <dataset>_image_index
+      <dataset>_source_metadata
+      # one pair per onboarded dataset, e.g. isic_2019_*, milk10k_*
     Volumes:
       landing
       files
@@ -85,6 +86,6 @@ Job definitions do not need to be committed until deployment begins, but the cod
 
 - Original source image bytes are immutable in the landing-volume archives, the sole permanent store of image bytes at any layer. This is checked, not just assumed: Silver validation and Gold shard export both re-verify each streamed image's checksum against the one Bronze originally recorded, and fail loudly on any mismatch rather than silently resolving `bronze_uri` to different bytes than what was actually validated or manifested — see `docs/decisions/008-immutable-source-archives-checksum-verified.md`.
 - Silver and Gold records reference the source archive (via an archive-resolvable `bronze_uri`) rather than duplicating image bytes into a table. The one deliberate, scoped exception is the Gold shard export — a derived, fully rebuildable cache, never a second source of truth (see `docs/decisions/006-stream-archives-no-blob-storage.md`). How long it's kept around is a separate, currently undecided question (`docs/decisions/009-gold-shard-retention-undecided.md`).
-- Preprocessing settings are versioned separately from the model code.
-- Every Gold release must be traceable to the Git commit, pipeline config, preprocessing config, and source-image checksums used to produce it.
+- Preprocessing settings will be versioned separately from the model code once training code exists to apply them — see `docs/decisions/010-pin-data-and-preprocessing-per-training-run.md`; there is no preprocessing config file today.
+- Every Gold release must be traceable to the Git commit and source-image checksums used to produce it.
 - Fixture tests should use only small local files and should not download ISIC data.

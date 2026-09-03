@@ -891,7 +891,12 @@ def write_gold_manifest_rows(
     against gold.manifest_registry can verify two manifests really did draw from
     the same image pool (same sample_seed) even if their split_seed or
     preprocessing_version differ, rather than having to trust that from outside
-    the data (e.g. by comparing config files by hand).
+    the data (e.g. by comparing config files by hand). That reuse is cheap only at
+    this table's level (metadata rows) — a dataset_version created solely to carry a
+    different preprocessing_version, with no other change, should not also get a
+    Gold shard export: write_gold_shards_for_splits writes raw bytes regardless of
+    preprocessing_version, so exporting both would just duplicate identical shard
+    bytes for no benefit. See docs/decisions/010-pin-data-and-preprocessing-per-training-run.md.
 
     created_at is set to the current timestamp on every call, same convention as
     Silver's validated_at — rerunning this for a (dataset_version, dataset_key,

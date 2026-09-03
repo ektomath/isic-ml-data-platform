@@ -12,7 +12,7 @@
 | Primary objective | Ingest, validate, version and publish the ISIC 2019 train + test archives (33,569 images) as reusable ML data products. |
 | MVP finish line | Gold classifier manifest, one reproducible baseline, one workflow, fixture-based CI and a public case study. |
 | Release 2 | Versioned super-resolution pairs and experiments, started only after the showcase MVP is published. |
-| Reference stack | Databricks Unity Catalog (catalog + bronze/silver/gold schemas, Volumes for file storage) + Python + Delta Silver tables + Parquet Gold manifest + Databricks Jobs/MLflow + local or third-party GPU. |
+| Reference stack | Databricks Unity Catalog (catalog + bronze/silver/gold schemas, Volumes for file storage) + Python + Delta Silver/Gold tables + Databricks Jobs/MLflow + local or third-party GPU. |
 | Plan date | 2026-08-18 (implementation sections last reconciled 2026-09-01) |
 
 ## 1. Project outcome and boundaries
@@ -44,7 +44,7 @@ ISIC source  ->  Bronze originals  ->  Silver validated inventory  ->  Gold mode
 
 | Layer | Purpose | Physical assets | Must not happen |
 |---|---|---|---|
-| Bronze | Preserve source faithfully | Original image bytes in Delta, CSV/JSON metadata, source manifest, ingestion ledger | Resize, recompress or overwrite source images |
+| Bronze | Preserve source faithfully | Image index (checksums, archive locators — no image bytes; see `docs/decisions/006-stream-archives-no-blob-storage.md`), CSV/JSON metadata, source manifest, ingestion ledger | Resize, recompress or overwrite source images |
 | Silver | Validate and normalize | Delta inventory, labels, group IDs, quality and rejected records | Copy every JPEG merely to claim another layer |
 | Gold | Publish for a specific consumer | Classifier manifest, preprocessing config, SR pair manifest/shards, dataset card | Change a published version in place |
 
@@ -99,7 +99,7 @@ ISIC source  ->  Bronze originals  ->  Silver validated inventory  ->  Gold mode
 - Use one Databricks Unity Catalog catalog (`derm_showcase_project`) with `bronze`/`silver`/`gold` schemas for tables, and Unity Catalog Volumes (`landing`, `files`) for archive/metadata file storage — Unity Catalog governance in place of a raw ADLS Gen2 container with layer prefixes.
 - Use one pipeline identity or developer identity for ingestion; issue narrowly scoped read access to external GPU compute only when needed.
 - Disable public blob access and configure one budget alert.
-- Use Delta for Silver and operational tables, and publish the portable Gold training manifest as Parquet.
+- Use Delta for Silver, Gold, and operational tables (see the GLD-001 deviation note in Phase 4 for why the Gold manifest is Delta, not the originally planned Parquet).
 - Use environment-variable overrides and emit run_id, stage, counts, bytes, duration and status as structured logs.
 
 **Acceptance evidence**
@@ -160,7 +160,7 @@ ISIC source  ->  Bronze originals  ->  Silver validated inventory  ->  Gold mode
 
 **Depends On:** BRZ-001, BRZ-002
 
-- Decode each JPEG and record width, height, channels, format, file size, checksum and Bronze URI.
+- Decode each JPEG and record width, height, format and Bronze URI.
 - Normalize image IDs, diagnosis codes and missing values while preserving original source values.
 - Join labels to inventory and identify corrupt files, orphan labels and unlabelled images.
 - Write rejected records with image ID, error code, message and source path; block Gold publication when reconciliation fails.
@@ -202,6 +202,7 @@ ISIC source  ->  Bronze originals  ->  Silver validated inventory  ->  Gold mode
 - Stratify diagnosis distribution where grouping constraints permit.
 - Publish image ID, Bronze URI, label, split, grouping fields and dataset version as Parquet.
 - Record source version, Silver version, pipeline Git commit, class counts, exclusions and manifest SHA-256 in a concise dataset card.
+- **Deviation:** published as the Delta table `gold.manifest_rows`, not Parquet — a Unity Catalog Delta table gives the same portability (queryable from anywhere with a Databricks connection) plus native `MERGE`/versioning semantics for multiple coexisting releases, without separate file-sync logic. See `docs/data_contract.md`.
 
 **Acceptance evidence**
 - No known group crosses splits.
@@ -217,6 +218,7 @@ ISIC source  ->  Bronze originals  ->  Silver validated inventory  ->  Gold mode
 - Version resize, aspect-ratio handling, augmentation and ImageNet mean/std as model runtime configuration.
 - Do not persist resized images or normalized tensors unless measured training performance later justifies a disposable cache.
 - Synchronize manifest images to local SSD and verify checksums before training.
+- **Deviation:** implemented as a derived MosaicML shard export (`notebooks/31_export_gold_shards.ipynb`, `streaming.MDSWriter`) rather than a raw per-image local SSD sync — packs a published manifest's images into per-split shard files, checksum-verified against the manifest during packing (`docs/decisions/008-immutable-source-archives-checksum-verified.md`), read via `streaming.StreamingDataset` from a mounted Volume (Databricks) or a `databricks fs cp`'d local copy (local machine). See `docs/decisions/006-stream-archives-no-blob-storage.md`.
 
 **Acceptance evidence**
 - A second cache sync downloads zero unchanged files.

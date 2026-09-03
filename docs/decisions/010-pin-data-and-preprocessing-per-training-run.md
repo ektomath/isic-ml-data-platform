@@ -58,6 +58,16 @@ The chosen combination (below) reuses two patterns already established elsewhere
    across both systems. Logging costs are ordinary compute-hours plus artifact storage (normal
    Blob storage rates) — nothing like the per-object Volume-write cost trap in
    `docs/lessons-learned.md`.
+5. **A new `dataset_version`/Gold shard export is for a new image selection, not a new
+   `preprocessing_version`.** `write_gold_shards_for_splits` writes raw archive bytes only —
+   nothing about Gold shard export applies preprocessing today, or ever will under ADR 001. Two
+   `dataset_version`s that share a `sample_seed` (deliberately supported so their image pools are
+   provably identical — see `docs/data_contract.md`) but differ only in `preprocessing_version` is
+   cheap at the manifest level (metadata rows only), but exporting shards for **both** produces two
+   byte-for-byte identical shard sets — real storage duplication for a distinction the export
+   pipeline can't act on. Until (1)/(2)/(3) above exist, `preprocessing_version` on a manifest row
+   is documentation, not something to fork a Gold release over; only fork `dataset_version` when
+   the actual image selection changes.
 
 ## Consequences
 
