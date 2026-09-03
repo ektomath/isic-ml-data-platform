@@ -45,7 +45,9 @@ Previously verified end-to-end on Databricks under the old Bronze-blob-table des
 
 - ⬜ Implement the baseline classifier
 - ⬜ Add deterministic train/validation/test splitting
-- ⬜ Record experiment tracking with MLflow
+- ⬜ Record experiment tracking with MLflow — the tracking server built into the Databricks workspace, reachable from a local machine via its REST client (no Databricks Connect/Spark session needed just to log a run); see `docs/decisions/010-pin-data-and-preprocessing-per-training-run.md`
+- ⬜ Pin data+preprocessing identity per training run — `config/gold/training_runs/<name>.yaml` pairs one `dataset_version` with one `preprocessing_version` (same versioned-config convention as `config/gold/manifests/` and `config/gold/exports/`); the training entrypoint accepts only that one name, not two free-standing parameters, so there's no code path to train against an unpinned pairing. Design decided, implementation deliberately deferred until this point — see `docs/decisions/010-...md`
+- ⬜ Record training-run provenance in `gold.training_run_registry` (`dataset_version`, `preprocessing_version`, MLflow `run_id`) — same audit-trail pattern as `bronze.ingestion_runs`/`gold.manifest_registry`, populated from MLflow runs rather than written to directly by local training code
 - ⬜ Capture baseline metrics and confusion matrix
 
 ## Automation
