@@ -1446,7 +1446,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "mosaicml-streaming" },
+    { name = "mosaicml-streaming", specifier = "==0.13.0" },
     { name = "pandas" },
     { name = "pillow" },
     { name = "pytest", marker = "extra == 'dev'" },

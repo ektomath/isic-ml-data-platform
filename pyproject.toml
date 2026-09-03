@@ -12,7 +12,7 @@ dependencies = [
   "PyYAML",
   "Pillow",
   "pandas",
-  "mosaicml-streaming",
+  "mosaicml-streaming==0.13.0",
 ]
 
 [project.optional-dependencies]
