@@ -183,9 +183,9 @@ an image's split to be consistent across manifests).
 | `label` | string | Final normalized training label for this release — a direct passthrough of a Silver label column (e.g. `malignancy`) for `sample-v1`; a future release may source `label` from a different column (e.g. a cross-dataset `specific_diagnosis` crosswalk — not designed yet, see `docs/decisions/003-silver-label-columns-not-map.md` for why that's deliberately deferred) |
 | `group_id` | string | Leakage-control group, from `silver.leakage_groups` — no `group_id` is ever split across `split` values within one `dataset_version`. Note this only guards against leakage *within* one dataset's own groups — a duplicate image across two different `dataset_key`s in the same manifest is not currently detected, see `docs/project-checklist.md`'s Gold section |
 | `split` | string | `train`, `validation`, or `test` |
-| `sample_seed` | integer | Seed used to select which images are in this manifest at all — deliberately separate from `split_seed`, so a later release can reuse the exact same image pool (e.g. the same selection under a different `preprocessing_version`) while only `split_seed` differs, or vice versa. Reusing `sample_seed` this way is cheap at the manifest level (metadata rows only) — but see the Gold shard export section below before also exporting shards for both: doing so duplicates identical bytes for no benefit until there's training code that actually applies `preprocessing_version` (`docs/decisions/010-pin-data-and-preprocessing-per-training-run.md`) |
+| `sample_seed` | integer | Seed used to select which images are in this manifest at all — deliberately separate from `split_seed`, so a later release can reuse the exact same image pool (e.g. the same selection under a different `preprocessing_version`) while only `split_seed` differs, or vice versa. Reusing `sample_seed` this way is cheap at the manifest level (metadata rows only) — but see the Gold shard export section below before also exporting shards for both: doing so duplicates identical bytes for no benefit, since Gold shard export never applies preprocessing (`docs/decisions/010-pin-data-and-preprocessing-per-training-run.md`) |
 | `split_seed` | integer | Seed used to divide the selected images into `train`/`validation`/`test` |
-| `preprocessing_version` | string | Opaque version tag for this release's intended preprocessing (e.g. `"sample-v1"`) — not currently backed by a versioned config file; see the `gold.preprocessing.yaml` contract below for what one should contain whenever it gets built |
+| `preprocessing_version` | string | This release's *default/intended* preprocessing tag (e.g. `"sample-v1"`) — documentation, not a binding constraint enforced by this table. What preprocessing a *specific trained model* actually used is pinned per training run instead, by `config/gold/training_runs/<name>.yaml`'s own `preprocessing_version` field (which may differ from this one) — see the `config/preprocessing/<name>.yaml` and `config/gold/training_runs/<name>.yaml` contracts below |
 | `manifest_row_hash` | string | `sha2`-256 over `dataset_key`\|`image_id`\|`label`\|`split`\|`source_checksum`, for row-level integrity checking |
 | `created_at` | timestamp | When this row was (last) written — refreshed on rerun, same convention as `silver.image_inventory.validated_at`; not a strict immutable-creation guarantee |
 
@@ -245,16 +245,64 @@ Minimum contents:
 - Known limitations
 - Contact and provenance notes
 
-### `gold.preprocessing.yaml`
+### `config/preprocessing/<name>.yaml`
 
-The preprocessing configuration stored with a Gold release must include:
+Implemented (`docs/decisions/011-baseline-training-framework-and-registry-sync.md`) as a named,
+reusable preprocessing recipe — decoupled from any one Gold release, not stored *with* one, since
+`docs/decisions/010-pin-data-and-preprocessing-per-training-run.md` established that the same
+image selection can be trained under several different preprocessing recipes without re-exporting
+shards. A `config/gold/training_runs/<name>.yaml` (below) references one by its
+`preprocessing_version` name. Loaded/validated by `ml.preprocessing.load_preprocessing_config`,
+resolved into `torchvision` transforms by `ml.preprocessing.build_transforms` at training/inference
+time only — never applied to stored bytes (`docs/decisions/001-preprocessing-at-runtime.md`).
 
-- Input image size
-- Normalization scheme
-- Resize and crop policy
-- Augmentation policy
-- Random seed
-- Framework-specific runtime notes
+| Field | Type | Notes |
+|---|---|---|
+| `preprocessing_version` | string | Name this file is referenced by |
+| `image_size` | int | Final crop size in pixels |
+| `normalization` | `{mean: [float, float, float], std: [float, float, float]}` | Per-channel normalization, matching whatever pretrained weights the architecture uses |
+| `resize_policy` | string | One of `ml.preprocessing`'s known resize policies (currently just `shorter_side_to_256`) |
+| `crop_policy` | `{train: string, eval: string}` | Documented for readability; `image_size` is the actual source of truth for the crop dimension, not this string |
+| `augmentation` | `{train: {...}, eval: [...] }` | `train` keys: `random_horizontal_flip` (bool), `random_rotation_degrees` (int). `eval` is typically empty — no augmentation at eval time |
+| `random_seed` | int | Passed to `torch.manual_seed` by `ml.train.run_training` |
+| `framework_runtime_notes` | string | Free text documenting the exact transform compose order for this recipe |
+
+### `config/gold/training_runs/<name>.yaml`
+
+Pins exactly one `dataset_version` to exactly one `preprocessing_version`, plus the hyperparameters
+for one training run. `ml.train`'s entrypoint accepts only this one name — never free-standing
+`dataset_version`/`preprocessing_version` parameters — so there is no code path to train against an
+unpinned pairing. Loaded/validated by `ml.training_run.resolve_training_run`.
+
+| Field | Type | Notes |
+|---|---|---|
+| `training_run_name` | string | Name this file is referenced by |
+| `dataset_version` | string | Which Gold release/shard export to train against |
+| `preprocessing_version` | string | Which `config/preprocessing/<name>.yaml` to apply |
+| `label_values` | list[string] | Fixes the class-index mapping deterministically (index = position in this list) — not derived from a shard scan |
+| `architecture` | string | Currently only `resnet18` is implemented (`ml.train.build_model`) |
+| `pretrained` | bool | Whether to start from ImageNet-pretrained weights (needs outbound network access on first use) |
+| `batch_size`, `num_epochs`, `learning_rate` | int/int/float | Standard training hyperparameters |
+| `optimizer` | string | `adam` or `sgd` |
+| `mlflow_experiment` | string, optional | Overrides `ml.mlflow_utils.DEFAULT_MLFLOW_EXPERIMENT` |
+
+### `gold.training_run_registry`
+
+One row per actual MLflow training run — audit-trail table, same pattern as
+`bronze.ingestion_runs`/`gold.manifest_registry`. Populated *from* MLflow runs by
+`data_platform.spark_io.write_training_run_registry_rows`, called on demand from
+`notebooks/40_train_baseline_classifier.ipynb`'s sync cell — never written to directly by local training
+code, since a local run has no Spark session
+(`docs/decisions/010-pin-data-and-preprocessing-per-training-run.md`).
+
+| Field | Type | Notes |
+|---|---|---|
+| `mlflow_run_id` | string | Globally unique per actual MLflow run — the `MERGE INTO` key |
+| `training_run_name` | string | From `config/gold/training_runs/<name>.yaml` |
+| `dataset_version` | string | From the same config |
+| `preprocessing_version` | string | From the same config |
+| `mlflow_experiment_id` | string | Which MLflow experiment the run belongs to |
+| `created_at` | timestamp | Stamped at sync time, not carried from MLflow's own run-start time — same convention as `gold.manifest_rows.created_at` |
 
 ## File and partitioning rules
 

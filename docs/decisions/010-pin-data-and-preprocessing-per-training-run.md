@@ -1,6 +1,6 @@
 # 010. Pin dataset + preprocessing identity per training run
 
-Status: accepted (design); implementation deferred until baseline training code exists
+Status: accepted; implemented by [ADR 011](011-baseline-training-framework-and-registry-sync.md)
 
 ## Context
 
@@ -71,14 +71,13 @@ The chosen combination (below) reuses two patterns already established elsewhere
 
 ## Consequences
 
-- **Not implemented yet, deliberately.** No `config/gold/training_runs/` directory and no
-  `gold.training_run_registry` table exist in the codebase today. Building either now, with no
-  training script to consume them, risks guessing at a shape that real training code later proves
-  wrong (e.g. a model-architecture or hyperparameter-config version might turn out to belong in
-  the pairing too) — the same "don't build ahead of a real consumer" discipline already applied in
+- **Deliberately not implemented at the time this ADR was written** — no `config/gold/training_runs/`
+  directory and no `gold.training_run_registry` table existed yet, since building either with no
+  training script to consume them would have risked guessing at a shape real training code later
+  proves wrong — the same "don't build ahead of a real consumer" discipline already applied in
   [ADR 009](009-gold-shard-retention-undecided.md) and [ADR 004](004-cross-dataset-leakage-not-checked.md).
-  Build both alongside the first real training script (see `docs/project-checklist.md`'s Training
-  section), not before it.
+  Both were built alongside the first real training script once it existed, exactly as planned —
+  see [ADR 011](011-baseline-training-framework-and-registry-sync.md) for the concrete shapes.
 - Trying multiple preprocessing settings against the same image selection stays cheap: this design
   changes nothing about shard storage, since ADR 001 already keeps preprocessing out of the shard
   bytes — a new `preprocessing_version` just means a new `config/gold/training_runs/<name>.yaml`

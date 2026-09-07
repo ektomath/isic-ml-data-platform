@@ -1,21 +1,8 @@
-import hashlib
-import zipfile
-
 from streaming import StreamingDataset
 
+from archive_fixtures import build_archive as _build_archive
+from archive_fixtures import checksum as _checksum
 from data_platform.shard_export import write_gold_shards_for_splits
-
-
-def _checksum(data: bytes) -> str:
-    return hashlib.sha256(data).hexdigest()
-
-
-def _build_archive(tmp_path, members: dict[str, bytes]):
-    archive_path = tmp_path / "archive.zip"
-    with zipfile.ZipFile(archive_path, "w") as archive:
-        for name, data in members.items():
-            archive.writestr(name, data)
-    return archive_path
 
 
 # mosaicml-streaming's MDSWriter parses `out` with urllib.parse.urlparse to tell a local

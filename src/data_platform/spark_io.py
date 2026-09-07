@@ -1079,3 +1079,36 @@ def remove_expired_exports(dbutils, gold_root: str, max_age_days: int) -> list[s
             removed.append(entry.path)
 
     return removed
+
+
+# ============================================================================
+# Training registry sync — write_training_run_registry_rows, called on-demand
+# from notebooks/40_train_baseline_classifier.ipynb after ml.train.run_training has logged one
+# or more MLflow runs. Not scheduled, not called by default — same "exists, callable,
+# not wired into a default flow" posture as remove_expired_exports above. Deliberately
+# takes plain row dicts, not an mlflow client — the MLflow-querying side lives in
+# ml.registry_sync.list_training_run_rows instead (mlflow, no Spark), kept apart the
+# same way write_gold_shards_for_splits (no Spark) is kept apart from
+# data_platform.spark_io (needs Spark, never imports mlflow). See docs/decisions/010
+# and docs/decisions/011.
+# ============================================================================
+
+
+def write_training_run_registry_rows(spark, gold_tables: dict, rows: list[dict]) -> int:
+    """MERGE INTO gold.training_run_registry, keyed on mlflow_run_id — already globally
+    unique per actual MLflow run, unlike manifest_rows' (dataset_version, dataset_key,
+    image_id) key, since this table holds one row per training run, not per image.
+
+    `rows` is ml.registry_sync.list_training_run_rows's output: dicts with
+    mlflow_run_id/training_run_name/dataset_version/preprocessing_version/
+    mlflow_experiment_id. created_at is stamped here (current_timestamp), not carried
+    from MLflow's own run-start time — same convention as manifest_rows.created_at and
+    silver.image_inventory.validated_at. Returns len(rows); a no-op (returns 0) if
+    rows is empty, rather than erroring on an empty write.
+    """
+    if not rows:
+        return 0
+
+    registry_df = spark.createDataFrame(rows).withColumn("created_at", F.current_timestamp())
+    merge_into(spark, registry_df, gold_tables["training_run_registry"], ["mlflow_run_id"])
+    return len(rows)

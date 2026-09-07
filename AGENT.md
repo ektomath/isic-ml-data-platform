@@ -2,7 +2,12 @@
 
 Last updated: 2026-09-03. Bronze and Silver have been rerun and verified against real Databricks
 data (ISIC 2019 + MILK10k) under the archive-streaming design (`docs/decisions/006-stream-archives-no-blob-storage.md`).
-Gold (`sample-v1` manifest + shard export) has not been run yet — see "Current next step."
+Gold (`sample-v1` manifest + shard export) has not been run yet — see "Current next step." Baseline
+training (`notebooks/40_train_baseline_classifier.ipynb`, `src/ml/`) is implemented — a PyTorch/torchvision
+ResNet-18 classifier, trainable identically locally or on Databricks, logging to MLflow and syncing
+provenance into `gold.training_run_registry` (`docs/decisions/010-pin-data-and-preprocessing-per-training-run.md`,
+`docs/decisions/011-baseline-training-framework-and-registry-sync.md`) — but not yet run against
+Databricks, since Gold hasn't published a manifest to train against yet.
 
 This is the canonical repo-local instruction file for project working state and conventions.
 Ask the agent to reread this file after long gaps, after conversation compaction, or when project conventions change.
@@ -16,6 +21,7 @@ Ask the agent to reread this file after long gaps, after conversation compaction
 - Notebook-first Databricks workflow.
 - Bronze and Silver are implemented and verified for both onboarded datasets (`isic_2019`, `milk10k`) under the current archive-streaming design.
 - Gold (`notebooks/30_create_gold_manifest.ipynb`, `notebooks/31_export_gold_shards.ipynb`) is implementation-complete but not yet run — see "Current next step."
+- Baseline training (`notebooks/40_train_baseline_classifier.ipynb`, `src/ml/train.py`'s `run_training`) is implementation-complete, unit-tested (`tests/test_ml_*.py`, including a real end-to-end wiring smoke test), but not yet run against Databricks — depends on Gold having published a manifest and export first.
 
 ## Repository shape
 
@@ -35,11 +41,13 @@ Ask the agent to reread this file after long gaps, after conversation compaction
 8. `notebooks/milk10k/20_silver_validate.ipynb`
 9. `notebooks/30_create_gold_manifest.ipynb`
 10. `notebooks/31_export_gold_shards.ipynb`
-11. `notebooks/40_baseline_results.ipynb`
+11. `notebooks/40_train_baseline_classifier.ipynb`
 
 MILK10k's three notebooks mirror ISIC 2019's exactly — the only real differences are `config/bronze/datasets/milk10k.yaml` and the Bronze source-metadata schema/DDL (MILK10k has 4 diagnosis levels and 2 anatomic-site levels instead of ISIC 2019's 5, no `patient_id`, one archive/no train-test split).
 
 `30_create_gold_manifest.ipynb` and `31_export_gold_shards.ipynb` are top-level (not under a dataset folder), unlike Bronze/Silver notebooks — a Gold release spans every included dataset in one run. `30` publishes `gold.manifest_rows` for a `dataset_version` (currently just `sample-v1`, ~100 images per dataset, built to iterate on the Gold pipeline cheaply — see `docs/project-checklist.md`). `31` reads an already-published `dataset_version` and packs it into a derived, per-split MosaicML shard export (`config/gold/exports/<name>.yaml`) — no table of its own, a Volume artifact fully rebuildable from the manifest and archives.
+
+`40_train_baseline_classifier.ipynb` is also top-level, same reasoning — training reads a `31` export, not a per-dataset artifact. It trains a baseline classifier against one `config/gold/training_runs/<name>.yaml` (currently just `sample-v1-resnet18`), delegating everything training-specific to `src/ml/train.py`'s `run_training` (identical whether called from this notebook or a local `python -m ml.train` invocation), then syncs the resulting MLflow run's provenance into `gold.training_run_registry`. See the ML/Training contract section below and `docs/decisions/010`/`011`.
 
 ## Notebook organization
 
@@ -67,8 +75,17 @@ Full schemas/contracts live in `docs/data_contract.md`; this section is what eac
   - **Silver**: `reconcile_bronze_records`, `apply_label_normalization`, `validate_images` (streams each label-valid candidate directly from its source archive via `iter_archive_matches`, decodes, discards bytes; raises immediately — fails the whole run — on any checksum mismatch against Bronze's recorded value, see `docs/decisions/008-immutable-source-archives-checksum-verified.md`), `build_accepted_rows`, `assign_leakage_groups_and_write_inventory`, `print_silver_outputs`.
   - **Gold**: `build_gold_candidate_groups`, `write_gold_manifest_rows`, `print_gold_outputs` (also asserts no `group_id` spans more than one `split`).
   - **Gold export**: `load_manifest_rows_for_export`, `print_export_outputs`, `remove_expired_exports` (general-purpose, not called by default — retention is undecided, `docs/decisions/009-gold-shard-retention-undecided.md`).
+  - **Training registry**: `write_training_run_registry_rows(spark, gold_tables, rows)` — `MERGE INTO gold.training_run_registry` keyed on `mlflow_run_id`, called on demand from `40_train_baseline_classifier.ipynb`; never imports `mlflow` itself, see `ml.registry_sync` below.
   - `spark`, `dbutils`, `display` are always explicit parameters, never assumed globals.
 - `data_platform.shard_export.write_gold_shards_for_splits(rows_by_split, staged_path_by_archive_uri, shard_dir_by_split, size_limit_bytes)` — streams every split's images in one pass (a source archive commonly feeds more than one split) via `iter_archive_matches`, writing matches into one `streaming.MDSWriter(..., exist_ok=True)` per split. Pure Python (no `spark`/`dbutils` param), unit-tested locally with real fixture archives (`tests/test_shard_export.py`). Kept out of `files.py` too — `mosaicml-streaming` is a heavy dependency (pulls in `torch`/`torchvision`/`transformers`) only Gold export needs.
+- `src/ml/` — the baseline-training package, sibling to `data_platform`, all pure Python plus `torch`/`torchvision`/`mlflow`/`scikit-learn` (no Spark import anywhere in this package). See the ML/Training contract section below for the design; module map:
+  - `ml.preprocessing` — `load_preprocessing_config`/`build_transforms(preprocessing_config, split)`, turning a `config/preprocessing/<name>.yaml` into a `torchvision.transforms.Compose` (train gets augmentation, everything else doesn't). Unit-tested (`tests/test_ml_preprocessing.py`) against a real in-memory PIL image.
+  - `ml.training_run` — `TrainingRunSpec`/`resolve_training_run(config_root, training_run_name)`, the single place a `config/gold/training_runs/<name>.yaml` name turns into everything training needs (loads + validates both that config and its referenced preprocessing config). Unit-tested (`tests/test_ml_training_run.py`) against real small YAML fixtures.
+  - `ml.dataset` — `GoldShardDataset` (subclasses `streaming.StreamingDataset`, decodes each sample's bytes via PIL, applies the split's transform, maps its label through the pinned `label_values` vocabulary — raises `KeyError` on an out-of-vocabulary label rather than silently coercing), `build_dataloader`. Unit-tested (`tests/test_ml_dataset.py`) against real tiny MDS shards, same fixture convention as `tests/test_shard_export.py` (including the Windows drive-letter workaround — `StreamingDataset` shares `MDSWriter`'s local-path quirk).
+  - `ml.metrics.compute_classification_metrics(y_true, y_pred, label_values)` — thin `scikit-learn` wrapper (balanced accuracy, per-class recall, confusion matrix, classification report), the original plan's ML-001 acceptance metrics. Unit-tested (`tests/test_ml_metrics.py`) against small hand-verified arrays.
+  - `ml.mlflow_utils` — `configure_mlflow_tracking(experiment_name, tracking_uri=None)` (no-op on Databricks; `mlflow.set_tracking_uri("databricks")` off it — credentials resolved by `databricks-sdk` from `~/.databrickscfg`/env vars, this project's own code never handles them), `running_on_databricks()`, `current_git_commit()` (best-effort, never raises).
+  - `ml.registry_sync.list_training_run_rows(mlflow_client, experiment_name)` — queries MLflow (no Spark), returns rows carrying this project's own `training_run_name`/`dataset_version`/`preprocessing_version` tags (skips anything missing them). Unit-tested (`tests/test_ml_registry_sync.py`) against a real local MLflow tracking store.
+  - `ml.train` — the entrypoint. `run_training(training_run_name, config_root=None, shards_root=None, mlflow_experiment=None, mlflow_tracking_uri=None, device=None, num_workers=0) -> str` (MLflow `run_id`) is the one orchestrator both `40_train_baseline_classifier.ipynb` and a local `python -m ml.train --training-run-name <name> --shards-root <dir>` CLI call. Unit-tested end-to-end (`tests/test_ml_train_smoke.py`) against real tiny shards + a real local MLflow store + `pretrained=False` (no network download in tests).
 
 ### Databricks serverless compute
 
@@ -101,6 +118,16 @@ All Spark/SQL code in this project must run on Databricks serverless compute. Co
 - `preprocessing_version` is an opaque string tag today — no config file backs it, and Gold shard export writes raw bytes regardless of its value. Never fork a `dataset_version`/manifest solely to vary this field and then export shards for both — that duplicates identical bytes for nothing. A new `dataset_version` is for a new image selection; see `docs/decisions/010-pin-data-and-preprocessing-per-training-run.md`.
 - `gold.dataset_card` is deferred, not silently dropped — not needed for a small iteration sample, build for the full-scale release.
 
+## ML/Training contract
+
+- `config/preprocessing/<name>.yaml` — a named preprocessing recipe (image size, normalization, resize/crop policy, augmentation, random seed), decoupled from any one `dataset_version` so multiple training runs can reuse it. Matches the `gold.preprocessing.yaml` contract in `docs/data_contract.md`. Never applied to stored bytes — resolved into `torchvision` transforms at training/inference load time only (`docs/decisions/001-preprocessing-at-runtime.md`).
+- `config/gold/training_runs/<name>.yaml` — pins exactly one `dataset_version` to exactly one `preprocessing_version`, plus `label_values` (fixes the class-index mapping deterministically, not derived from a shard scan) and full hyperparameters (`architecture`/`batch_size`/`num_epochs`/`learning_rate`/`optimizer`). `ml.train`'s entrypoint accepts only this one name — never free-standing `dataset_version`/`preprocessing_version` parameters — so there's no code path to train against an unpinned pairing. See `docs/decisions/010-pin-data-and-preprocessing-per-training-run.md` and `docs/decisions/011-baseline-training-framework-and-registry-sync.md`.
+- `gold.training_run_registry` — one row per actual MLflow training run (`mlflow_run_id`, `training_run_name`, `dataset_version`, `preprocessing_version`, `mlflow_experiment_id`, `created_at`), same audit-trail pattern as `bronze.ingestion_runs`/`gold.manifest_registry`. Populated *from* MLflow runs by `data_platform.spark_io.write_training_run_registry_rows`, called on demand from `40_train_baseline_classifier.ipynb`'s sync cell — never written to directly by local training code, since a local run has no Spark session. Running the training cell without the sync cell leaves that run invisible to the registry until someone runs it later — accepted, same "exists, not automatic" posture as `remove_expired_exports`.
+- MLflow is the local/Databricks bridge, not the source of truth for data identity: `ml.mlflow_utils.configure_mlflow_tracking` is a no-op tracking-URI-wise on Databricks (the runtime already configures one); off Databricks it calls `mlflow.set_tracking_uri("databricks")`, resolving credentials from `~/.databrickscfg` or `DATABRICKS_HOST`/`DATABRICKS_TOKEN` via `databricks-sdk` (an `mlflow-skinny` dependency) — this project's own code never reads or handles those credentials. One shared, project-wide experiment (`ml.mlflow_utils.DEFAULT_MLFLOW_EXPERIMENT`, overridable per training-run config), not one per release — the `training_run_name`/`dataset_version`/`preprocessing_version` **tags** (not params) set on every run give the per-run filtering axis within it.
+- `mlflow-skinny`, not full `mlflow` — this project only ever talks to the Databricks-hosted tracking server over REST, never runs its own tracking server. Two version-specific quirks worth knowing (both already worked around in `src/ml/train.py` and `tests/test_ml_*.py`): (1) it deprecated the plain `file://` tracking backend by default ("maintenance mode") — `MLFLOW_ALLOW_FILE_STORE=true` opts back in for local/test use, since `sqlite:///...` (the suggested replacement) needs `sqlalchemy`, part of full `mlflow`, not `mlflow-skinny`; (2) `mlflow.pytorch.log_model`'s default `serialization_format` is now `"pt2"` (a traced-graph format requiring a real `input_example`) — `run_training` passes `serialization_format="pickle"` explicitly instead, simpler and needs no example input.
+- Local vs Databricks shard consumption: `ml.train.resolve_shards_root` takes an explicit `--shards-root` override (a `databricks fs cp -r`'d local directory, per `docs/data_contract.md`'s Gold shard export section); if omitted, defaults to the same `<storage_root>/gold/<dataset_version>/shards` path `31_export_gold_shards.ipynb` already writes to — resolves for free on Databricks (mounted Volume), fails fast locally otherwise. No environment auto-detection beyond this.
+- Baseline architecture: PyTorch + torchvision `resnet18` (`ResNet18_Weights.IMAGENET1K_V1`, `fc` replaced for the run's label count) — `pretrained: true` needs outbound network access to download ImageNet weights on first use; confirm the target compute's network policy before relying on it for a real run.
+
 ## Table strategy
 
 - Use one catalog unless there is a real isolation requirement
@@ -131,9 +158,10 @@ Bronze and Silver are done — both onboarded datasets (`isic_2019`, `milk10k`) 
 
 1. Run `notebooks/30_create_gold_manifest.ipynb` for the `sample-v1` release against the freshly-verified Silver data. Confirm the leakage invariant holds (`print_gold_outputs`) and that reruns are idempotent (same `manifest_row_hash`, not duplicate rows).
 2. Run `notebooks/31_export_gold_shards.ipynb` for the same release. New core dependency: `mosaicml-streaming` (pulls in `torch`/`torchvision`/`transformers` transitively — accepted cost of using `MDSWriter`/`StreamingDataset` rather than a hand-rolled format).
-3. Record actual accepted/rejected/leakage-group and manifest/shard counts here and in `docs/project-checklist.md` once both have run.
+3. Run `notebooks/40_train_baseline_classifier.ipynb` for `sample-v1-resnet18` — implementation-complete and unit-tested (see the ML/Training contract section above), but this is its first real run. Confirm the training cell completes, MLflow shows the run with correct tags/params/metrics/artifacts, and the sync cell populates `gold.training_run_registry`. That notebook's serverless Environment needs `torch`/`torchvision`/`mlflow-skinny`/`scikit-learn` added (same mechanism as `mosaicml-streaming` on `31`).
+4. Record actual accepted/rejected/leakage-group counts, manifest/shard counts, and baseline classifier metrics (balanced accuracy, per-class recall) here and in `docs/project-checklist.md` once all three have run.
 
-Everything else deferred (full-scale Gold release, dataset card, cross-dataset dedup, training-run pinning) is tracked in `docs/project-checklist.md`, not here.
+Everything else deferred (full-scale Gold release, dataset card, cross-dataset dedup) is tracked in `docs/project-checklist.md`, not here.
 
 ## Update rule
 
