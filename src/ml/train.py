@@ -61,12 +61,30 @@ def resolve_shards_root(shards_root: str | None, storage_config: dict, dataset_v
     `databricks fs cp -r`'d shard directory (docs/data_contract.md). If omitted, compute the
     same `<storage_root>/gold/<dataset_version>/shards` path
     `notebooks/31_export_gold_shards.ipynb` already writes to -- resolves for free on Databricks
-    (the Volume is directly mounted there); off Databricks, this fails fast with a clear
-    FileNotFoundError once a dataloader tries to open it, unless --shards-root was passed.
+    (the Volume is directly mounted there). Existence is checked separately by
+    check_shards_exist, not here -- this function only computes the path.
     """
     if shards_root is not None:
         return shards_root
     return join_storage_path(storage_config["storage_root"], f"gold/{dataset_version}/shards")
+
+
+def check_shards_exist(base_shards_root: str, splits: tuple[str, ...] = ("train", "validation", "test")) -> None:
+    """Raise FileNotFoundError up front, listing every missing split at once, if any split's
+    shard directory doesn't exist yet under base_shards_root -- same "fail loud before the
+    expensive part" pattern as data_platform.files.check_archives_exist, rather than letting a
+    missing/wrong shards_root surface as a cryptic `RuntimeError: Stream contains no samples`
+    deep inside StreamingDataset construction. Checks for each split's `index.json`, the file
+    streaming.MDSWriter always writes last -- its presence is what actually means "this split
+    was fully exported," not just that the directory exists.
+    """
+    missing_splits = [split for split in splits if not Path(join_storage_path(base_shards_root, split), "index.json").exists()]
+    if missing_splits:
+        raise FileNotFoundError(
+            f"No shards found for split(s) {missing_splits} under {base_shards_root!r}. Run "
+            f"notebooks/31_export_gold_shards.ipynb first for this dataset_version, or pass the "
+            f"correct --shards-root if you already exported them somewhere else."
+        )
 
 
 def build_model(architecture: str, num_classes: int, pretrained: bool) -> nn.Module:
@@ -161,6 +179,8 @@ def run_training(
     Databricks notebook cell (`notebooks/40_train_baseline_classifier.ipynb`'s training cell). Returns
     the MLflow run_id.
     """
+    # Ordered deliberately to fail fast: cheap/local checks first, then the network-dependent
+    # MLflow setup, and only then the expensive part (reading every split's shard index).
     config_root = Path(config_root) if config_root is not None else DEFAULT_CONFIG_ROOT
     spec = resolve_training_run(config_root, training_run_name)
     random_seed = spec.preprocessing_config["random_seed"]
@@ -168,6 +188,18 @@ def run_training(
 
     storage_config = load_yaml_config(config_root / "storage.yaml")
     base_shards_root = resolve_shards_root(shards_root, storage_config, spec.dataset_version)
+    check_shards_exist(base_shards_root)
+
+    resolved_device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+    if device is None and resolved_device == "cpu":
+        print(
+            "WARNING: no CUDA device found -- training will run on CPU. If this is meant to be a "
+            "GPU run, the installed torch build likely has no CUDA support compiled in (a plain "
+            "'pip install torch'/'uv add torch' often resolves to a CPU-only wheel) -- check "
+            "torch.cuda.is_available() and torch.version.cuda before trusting this run's timing."
+        )
+
+    configure_mlflow_tracking(mlflow_experiment or spec.mlflow_experiment, mlflow_tracking_uri)
 
     label_to_index = label_to_index_map(spec.label_values)
     train_transform = build_transforms(spec.preprocessing_config, "train")
@@ -185,9 +217,6 @@ def run_training(
         for split, (transform, shuffle) in split_settings.items()
     }
     train_loader, validation_loader, test_loader = loaders["train"], loaders["validation"], loaders["test"]
-
-    resolved_device = device or ("cuda" if torch.cuda.is_available() else "cpu")
-    configure_mlflow_tracking(mlflow_experiment or spec.mlflow_experiment, mlflow_tracking_uri)
 
     model = build_model(spec.architecture, len(spec.label_values), spec.pretrained).to(resolved_device)
     optimizer = build_optimizer(model, spec.optimizer, spec.learning_rate)

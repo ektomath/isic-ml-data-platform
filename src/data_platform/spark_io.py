@@ -864,6 +864,56 @@ def build_gold_candidate_groups(spark, silver_tables: dict, dataset_key: str, la
     return [row.asDict() for row in groups_df.collect()]
 
 
+def assert_no_cross_dataset_duplicate_checksums(spark, silver_tables: dict, dataset_keys: list[str]) -> None:
+    """Raise if the same source_checksum appears under more than one of dataset_keys' accepted
+    silver.image_inventory rows -- the sound signal for real cross-dataset image duplication.
+    patient_id/lesion_id are dataset-issued and deliberately NOT compared here, since they're
+    not guaranteed globally unique/consistent across datasets, unlike source_checksum (a
+    SHA-256 of the raw bytes). See docs/decisions/004-cross-dataset-leakage-not-checked.md.
+
+    A no-op when dataset_keys has fewer than 2 entries -- cross-dataset duplication is only
+    possible once a manifest actually spans more than one dataset_key, matching
+    build_gold_candidate_groups being called once per dataset_key rather than this check being
+    folded into it. Call this once, before select_sample_and_splits assigns splits: a real
+    duplicate that goes undetected could otherwise land in different splits across its two
+    dataset_key copies -- real train/test leakage -- which is exactly what this check exists to
+    catch before sampling happens, not report after the fact.
+
+    Metadata-only aggregation (no image bytes), same posture as build_gold_candidate_groups.
+    """
+    if len(dataset_keys) < 2:
+        return
+
+    duplicate_rows = (
+        spark.table(silver_tables["image_inventory"])
+        .where(F.col("dataset_key").isin(dataset_keys))
+        .groupBy("source_checksum")
+        .agg(
+            F.collect_set("dataset_key").alias("duplicate_dataset_keys"),
+            F.collect_list("image_id").alias("duplicate_image_ids"),
+        )
+        .where(F.size("duplicate_dataset_keys") > 1)
+        .collect()
+    )
+
+    if duplicate_rows:
+        examples = [
+            {
+                "source_checksum": row["source_checksum"],
+                "dataset_keys": row["duplicate_dataset_keys"],
+                "image_ids": row["duplicate_image_ids"],
+            }
+            for row in duplicate_rows[:5]
+        ]
+        raise ValueError(
+            f"{len(duplicate_rows)} image(s) (by source_checksum) appear in more than one of "
+            f"{dataset_keys} -- real cross-dataset duplicates. Left unresolved, the same image "
+            f"could land in different splits across its two dataset_key copies -- real "
+            f"train/test leakage. First few: {examples}. See "
+            f"docs/decisions/004-cross-dataset-leakage-not-checked.md."
+        )
+
+
 def write_gold_manifest_rows(
     spark,
     silver_tables: dict,
