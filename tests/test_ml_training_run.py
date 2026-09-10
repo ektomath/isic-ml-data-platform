@@ -78,7 +78,17 @@ def test_resolve_training_run_loads_both_configs(tmp_path):
     assert spec.learning_rate == 0.001
     assert spec.optimizer == "adam"
     assert spec.mlflow_experiment is None
+    assert spec.registered_model_name is None
     assert spec.preprocessing_config["random_seed"] == 7
+
+
+def test_resolve_training_run_reads_registered_model_name_when_set(tmp_path):
+    training_run_yaml = _TRAINING_RUN_YAML + "registered_model_name: fixture_catalog.gold.fixture_classifier\n"
+    config_root = _build_config_root(tmp_path, training_run_yaml=training_run_yaml)
+
+    spec = resolve_training_run(config_root, "fixture-run")
+
+    assert spec.registered_model_name == "fixture_catalog.gold.fixture_classifier"
 
 
 def test_resolve_training_run_raises_on_malformed_preprocessing_config(tmp_path):

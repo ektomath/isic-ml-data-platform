@@ -284,6 +284,7 @@ unpinned pairing. Loaded/validated by `ml.training_run.resolve_training_run`.
 | `batch_size`, `num_epochs`, `learning_rate` | int/int/float | Standard training hyperparameters |
 | `optimizer` | string | `adam` or `sgd` |
 | `mlflow_experiment` | string, optional | Overrides `ml.mlflow_utils.DEFAULT_MLFLOW_EXPERIMENT` |
+| `registered_model_name` | string, optional | A Unity Catalog `catalog.schema.model` name (or workspace registry name). If set, the trained model is registered as a new version of this name in the MLflow Model Registry in addition to being logged to the run; omitted, the model is logged but not registered |
 
 ### `gold.training_run_registry`
 

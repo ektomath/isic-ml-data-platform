@@ -52,6 +52,21 @@ def configure_mlflow_tracking(experiment_name: str | None, tracking_uri: str | N
     return resolved_experiment_name
 
 
+def configure_model_registry(registry_uri: str | None = None) -> None:
+    """Point MLflow's model registry at Unity Catalog, identically in shape to
+    configure_mlflow_tracking -- but with different default logic, since Databricks does *not*
+    default the model registry to Unity Catalog on its own, even from inside a notebook where
+    the tracking URI is already configured for you. Only called at all when a training run
+    actually has a registered_model_name to register (see ml.train.run_training), so a run that
+    never registers a model never touches this global MLflow state.
+
+    `registry_uri`, if given, is used verbatim -- for tests (a local `file://` store, shared
+    with the tracking URI so a registered model lands in the same fixture directory) and
+    advanced overrides, not normal use.
+    """
+    mlflow.set_registry_uri(registry_uri if registry_uri is not None else "databricks-uc")
+
+
 def current_git_commit() -> str | None:
     """Best-effort current commit hash, logged as an MLflow param for lineage. Returns None
     (never raises) if git isn't available or this isn't a git checkout -- a training run on a

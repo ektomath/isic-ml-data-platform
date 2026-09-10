@@ -23,7 +23,7 @@ from torch import nn
 from data_platform.dataset_layout import join_storage_path, load_yaml_config
 from ml.dataset import build_dataloader, label_to_index_map
 from ml.metrics import compute_classification_metrics
-from ml.mlflow_utils import configure_mlflow_tracking, current_git_commit
+from ml.mlflow_utils import configure_mlflow_tracking, configure_model_registry, current_git_commit
 from ml.preprocessing import build_transforms
 from ml.training_run import resolve_training_run
 
@@ -51,6 +51,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--shards-root", default=None, help="Local directory or Volume path holding train/validation/test shard dirs; defaults to <storage_root>/gold/<dataset_version>/shards")
     parser.add_argument("--mlflow-experiment", default=None, help="Overrides the training-run config's mlflow_experiment")
     parser.add_argument("--mlflow-tracking-uri", default=None, help="Advanced/test override; normally resolved automatically")
+    parser.add_argument(
+        "--registered-model-name",
+        default=None,
+        help="Overrides the training-run config's registered_model_name (e.g. a Unity Catalog "
+        "'catalog.schema.model' name); if neither is set, the model is logged to the run but not registered",
+    )
+    parser.add_argument("--registry-uri", default=None, help="Advanced/test override for the model registry backend; normally resolved automatically (Unity Catalog)")
     parser.add_argument("--device", default=None, help="Defaults to cuda if available, else cpu")
     parser.add_argument("--num-workers", type=int, default=0)
     return parser.parse_args(argv)
@@ -172,12 +179,21 @@ def run_training(
     shards_root: str | None = None,
     mlflow_experiment: str | None = None,
     mlflow_tracking_uri: str | None = None,
+    registered_model_name: str | None = None,
+    registry_uri: str | None = None,
     device: str | None = None,
     num_workers: int = 0,
 ) -> str:
     """The reusable orchestrator -- identical whether called from a CLI/local script or a
     Databricks notebook cell (`notebooks/40_train_baseline_classifier.ipynb`'s training cell). Returns
     the MLflow run_id.
+
+    `registered_model_name` (falling back to the training-run config's own field if this
+    argument is omitted) additionally registers the trained model as a new version of that name
+    in the MLflow Model Registry -- e.g. a Unity Catalog `catalog.schema.model` name, so
+    successive training runs across different architectures/hyperparameters accumulate as
+    versions of one named model instead of only being addressable by run_id. Omitted entirely
+    (the default) if neither is set -- the model is still logged to the run either way.
     """
     # Ordered deliberately to fail fast: cheap/local checks first, then the network-dependent
     # MLflow setup, and only then the expensive part (reading every split's shard index).
@@ -200,6 +216,10 @@ def run_training(
         )
 
     configure_mlflow_tracking(mlflow_experiment or spec.mlflow_experiment, mlflow_tracking_uri)
+
+    resolved_registered_model_name = registered_model_name or spec.registered_model_name
+    if resolved_registered_model_name is not None:
+        configure_model_registry(registry_uri)
 
     label_to_index = label_to_index_map(spec.label_values)
     train_transform = build_transforms(spec.preprocessing_config, "train")
@@ -271,7 +291,12 @@ def run_training(
         # serialization_format="pickle": mlflow-skinny's default ("pt2") is a traced-graph
         # format requiring a real input_example to trace the model graph through -- pickle
         # needs none of that and is simpler/more reliable for a baseline classifier this size.
-        mlflow.pytorch.log_model(model, artifact_path="model", serialization_format="pickle")
+        mlflow.pytorch.log_model(
+            model,
+            artifact_path="model",
+            serialization_format="pickle",
+            registered_model_name=resolved_registered_model_name,
+        )
 
         return run.info.run_id
 
@@ -284,6 +309,8 @@ def main(argv: list[str] | None = None) -> None:
         shards_root=args.shards_root,
         mlflow_experiment=args.mlflow_experiment,
         mlflow_tracking_uri=args.mlflow_tracking_uri,
+        registered_model_name=args.registered_model_name,
+        registry_uri=args.registry_uri,
         device=args.device,
         num_workers=args.num_workers,
     )

@@ -143,3 +143,30 @@ def test_run_training_end_to_end_wiring(tmp_path, monkeypatch):
     assert "test_recall_malignant" in run.data.metrics
     assert "train_loss" in run.data.metrics
     assert "validation_loss" in run.data.metrics
+
+
+def test_run_training_registers_model_when_registered_model_name_is_set(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("MLFLOW_ALLOW_FILE_STORE", "true")
+
+    config_root = _build_config_root(tmp_path)
+    shards_root = _build_shards(tmp_path)
+    mlflow_tracking_uri = f"file:{tmp_path / 'mlruns'}"
+
+    run_id = run_training(
+        "smoke-run",
+        config_root=config_root,
+        shards_root=shards_root,
+        mlflow_experiment="smoke_test",
+        mlflow_tracking_uri=mlflow_tracking_uri,
+        registered_model_name="smoke_registered_model",
+        registry_uri=mlflow_tracking_uri,  # same local file store as tracking, for this test only
+        device="cpu",
+        num_workers=0,
+    )
+
+    client = MlflowClient(tracking_uri=mlflow_tracking_uri, registry_uri=mlflow_tracking_uri)
+    versions = client.search_model_versions("name='smoke_registered_model'")
+
+    assert len(versions) == 1
+    assert versions[0].run_id == run_id

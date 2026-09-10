@@ -23,3 +23,10 @@ optimizer: adam   # adam | sgd
 
 # Optional -- defaults to ml.mlflow_utils.DEFAULT_MLFLOW_EXPERIMENT if omitted.
 mlflow_experiment: /Shared/isic_ml_data_platform/baseline_training
+
+# Optional -- a Unity Catalog three-level name ("catalog.schema.model"). If set, the trained
+# model is registered as a new version of this name in the MLflow Model Registry (in addition to
+# always being logged to the run itself), so different architectures/hyperparameters trained
+# over time accumulate as versions of one named model instead of only being addressable by
+# run_id. Omit to log the model without registering it.
+registered_model_name: derm_showcase_project.gold.baseline_classifier

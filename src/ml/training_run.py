@@ -43,6 +43,7 @@ class TrainingRunSpec:
     learning_rate: float
     optimizer: str
     mlflow_experiment: str | None
+    registered_model_name: str | None
 
 
 def load_training_run_config(config_root: str | Path, training_run_name: str) -> dict:
@@ -75,4 +76,5 @@ def resolve_training_run(config_root: str | Path, training_run_name: str) -> Tra
         learning_rate=float(config["learning_rate"]),
         optimizer=config.get("optimizer", "adam"),
         mlflow_experiment=config.get("mlflow_experiment"),
+        registered_model_name=config.get("registered_model_name"),
     )
