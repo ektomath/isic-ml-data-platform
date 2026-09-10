@@ -20,7 +20,7 @@ Source metadata extracted from the ISIC release and preserved without model-spec
 |---|---|---|
 | `image_id` | string | Stable ISIC identifier from `isic_id` |
 | `source_split` | string | Source archive split, for example `train` or `test` |
-| `source_uri` | string | Archive-resolvable pointer (`archive:<source_archive_uri>#<archive_member_path>`) — the only way to locate this image's bytes, since none are stored in any table |
+| `source_uri` | string | Archive-resolvable pointer to this image's bytes (`archive:<source_archive_uri>#<archive_member_path>`) |
 | `attribution` | string or null | Source attribution text |
 | `copyright_license` | string or null | Source license value |
 | `age_approx` | string or null | Approximate patient age from source metadata |
@@ -44,13 +44,13 @@ Source metadata extracted from the ISIC release and preserved without model-spec
 
 ### `bronze.milk10k_source_metadata`
 
-Source metadata extracted from the MILK10k release and preserved without model-specific transformation. A different shape than `bronze.isic_2019_source_metadata` by design (see `AGENT.md`'s "Table strategy" — Bronze source tables are kept dataset-specific since source schemas differ): 4 diagnosis levels and 2 anatomic-site levels instead of ISIC 2019's 5, no `patient_id`/`clin_size_long_diam_mm`/`dermoscopic_type`/`family_hx_mm`/`personal_hx_mm`, plus a MILK10k-only `image_manipulation` column. MILK10k is a single release with no train/test split, so `source_split` is always `all` for this table.
+Source metadata extracted from the MILK10k release, preserved without model-specific transformation. Deliberately a different shape than `bronze.isic_2019_source_metadata` (`AGENT.md`'s "Table strategy" — Bronze source tables stay dataset-specific since source schemas differ): 4 diagnosis levels and 2 anatomic-site levels instead of ISIC 2019's 5, no `patient_id`/`clin_size_long_diam_mm`/`dermoscopic_type`/`family_hx_mm`/`personal_hx_mm`, plus a MILK10k-only `image_manipulation` column. A single release with no train/test split, so `source_split` is always `all`.
 
 | Field | Type | Notes |
 |---|---|---|
 | `image_id` | string | Stable ISIC identifier from `isic_id` |
 | `source_split` | string | Always `all` — MILK10k has no train/test split |
-| `source_uri` | string | Archive-resolvable pointer (`archive:<source_archive_uri>#<archive_member_path>`) — the only way to locate this image's bytes, since none are stored in any table |
+| `source_uri` | string | Archive-resolvable pointer to this image's bytes (`archive:<source_archive_uri>#<archive_member_path>`) |
 | `attribution` | string or null | Source attribution text |
 | `copyright_license` | string or null | Source license value |
 | `age_approx` | string or null | Approximate patient age from source metadata |
@@ -70,10 +70,10 @@ Source metadata extracted from the MILK10k release and preserved without model-s
 
 ### `bronze.isic_2019_image_index`
 
-An index of images extracted from locally staged ISIC release archives — checksums and archive
-locators only, no image bytes (see `docs/decisions/006-stream-archives-no-blob-storage.md`).
-Bronze ingestion still streams every archive once to compute each row's `byte_length`/
-`source_checksum`, it just never retains the bytes past that computation.
+An index of images from locally staged ISIC release archives — checksums and archive locators
+only, no image bytes (`docs/decisions/006-stream-archives-no-blob-storage.md`). Bronze still
+streams every archive once to compute each row's `byte_length`/`source_checksum`, it just never
+retains the bytes past that computation.
 
 | Field | Type | Notes |
 |---|---|---|
@@ -84,7 +84,7 @@ Bronze ingestion still streams every archive once to compute each row's `byte_le
 | `byte_length` | long | Number of encoded bytes, computed while streaming |
 | `source_checksum` | string | SHA-256 of the image's encoded bytes, computed while streaming |
 
-`bronze.milk10k_image_index` has the identical shape (`IMAGE_INDEX_SCHEMA` in `data_platform.spark_io` is the shared, dataset-agnostic schema both tables are created from) — only the table name and `source_split` values differ (always `all` for MILK10k).
+`bronze.milk10k_image_index` is identical in shape (`IMAGE_INDEX_SCHEMA` in `data_platform.spark_io` is the shared, dataset-agnostic schema both are created from) — only the table name and `source_split` (always `all` for MILK10k) differ.
 
 ### `bronze.ingestion_runs`
 
@@ -105,22 +105,21 @@ Run-level metadata for traceability.
 
 ### `silver.image_inventory`
 
-One row per **accepted** image after validation and normalization. A rejected
-image never lands here — see `silver.rejected_records` instead, which is the
-only table that carries rejected rows and their reasons.
+One row per **accepted** image after validation and normalization. A rejected image never lands
+here — see `silver.rejected_records`, the only table carrying rejected rows and their reasons.
 
 | Field | Type | Notes |
 |---|---|---|
-| `dataset_key` | string | Which dataset this row belongs to (`config/bronze/datasets/<dataset>.yaml`'s `dataset_key`, e.g. `isic_2019`) — this table is shared across every dataset, so this is what lets you segment or compare across them without parsing `bronze_uri` |
-| `image_id` | string | Stable identifier from the source dataset. Unique together with `dataset_key`, not guaranteed globally unique on its own |
+| `dataset_key` | string | Which dataset this row belongs to (`config/bronze/datasets/<dataset>.yaml`'s `dataset_key`) — this table is shared across every dataset, so this is what lets you segment/compare without parsing `bronze_uri` |
+| `image_id` | string | Stable identifier from the source dataset. Unique together with `dataset_key`, not globally |
 | `bronze_uri` | string | Archive-resolvable pointer to this image's bytes (`archive:<source_archive_uri>#<archive_member_path>`) |
 | `source_checksum` | string | SHA-256 copied from Bronze |
 | `image_width` | integer or null | Decoded width |
 | `image_height` | integer or null | Decoded height |
 | `image_format` | string or null | Decoded file format |
-| `validation_status` | string | Always `accepted` in this table — a row only exists here once it's passed every check; there is no `rejected` value in practice |
-| `validation_reason` | string or null | Always `null` in this table (reserved); actual rejection reasons live in `silver.rejected_records.rejection_reason` |
-| `malignancy` | string or null | Canonical benign/malignant/indeterminate classification, from this dataset's source label. Enforced (not just documented) against `data_platform.labels.MALIGNANCY_VALUES` at Silver-run time via `apply_label_normalization`'s `controlled_vocabularies` — a dataset's `normalize_labels` producing any other value fails the run rather than silently drifting this column |
+| `validation_status` | string | Always `accepted` here — a row only exists once it's passed every check |
+| `validation_reason` | string or null | Always `null` here (reserved); real rejection reasons live in `silver.rejected_records.rejection_reason` |
+| `malignancy` | string or null | Canonical benign/malignant/indeterminate classification. Enforced (not just documented) against `data_platform.labels.MALIGNANCY_VALUES` via `apply_label_normalization`'s `controlled_vocabularies` — a `normalize_labels` producing any other value fails the run rather than drifting this column |
 | `specific_diagnosis` | string or null | Most specific diagnosis value available from this dataset's source label |
 | `patient_id` | string or null | Used for leakage grouping |
 | `lesion_id` | string or null | Used for leakage grouping |
@@ -129,18 +128,27 @@ only table that carries rejected rows and their reasons.
 
 `MERGE INTO` is keyed on (`dataset_key`, `image_id`) together, not `image_id` alone.
 
-Label columns grow via `ALTER TABLE ... ADD COLUMNS` as new datasets need new label axes (for example a future dataset's `severity` or `body_site`) — each new column is nullable for every dataset that doesn't populate it. This keeps `image_inventory` a single shared table with real, Unity-Catalog-discoverable columns instead of a per-dataset table or an opaque map column. See `docs/decisions/003-silver-label-columns-not-map.md` for the rationale. Image validation criteria (e.g. dimension bounds) can also vary by dataset — see `docs/silver_validation_rules.md`.
-
-`specific_diagnosis` is deliberately **not** enforced this way — it stays open-ended free text per dataset; only label axes meant to be cross-dataset comparable (currently just `malignancy`) get a controlled vocabulary.
+Label columns grow via `ALTER TABLE ... ADD COLUMNS` as new datasets need new axes (e.g. a future
+`severity`/`body_site`), each nullable for datasets that don't populate it — a single shared,
+Unity-Catalog-discoverable table rather than a per-dataset table or opaque map column (rationale:
+`docs/decisions/003-silver-label-columns-not-map.md`). Validation criteria (e.g. dimension bounds)
+can also vary by dataset — see `docs/silver_validation_rules.md`. `specific_diagnosis` is
+deliberately **not** vocabulary-enforced — open-ended free text per dataset; only axes meant to be
+cross-dataset comparable (currently just `malignancy`) get one.
 
 ### `silver.leakage_groups`
 
-Grouping table used to prevent patient or lesion leakage across dataset splits. Scoped per dataset by design, not just as an implementation detail: cross-dataset leakage is never checked, and the pipeline assumes without verifying that its source datasets are non-overlapping — see `docs/decisions/004-cross-dataset-leakage-not-checked.md`.
+Grouping table preventing patient or lesion leakage across dataset splits. Scoped per dataset by
+design, not just implementation detail: grouping never merges across datasets even on an ID
+collision (`patient_id`/`lesion_id` aren't guaranteed to share a namespace across datasets), and
+cross-dataset duplicate *images* (a sound signal, unlike the IDs) are checked separately by
+`assert_no_cross_dataset_duplicate_checksums` before Gold sampling — see
+`docs/decisions/004-cross-dataset-leakage-not-checked.md`.
 
 | Field | Type | Notes |
 |---|---|---|
-| `dataset_key` | string | Which dataset this group belongs to; grouping is scoped per dataset (a `patient_id` collision between two different datasets should never merge their images into one group) |
-| `group_id` | string | Stable group identifier, embeds `dataset_key` so it's globally unique across datasets even if two datasets happen to reuse the same lesion/patient/image ID values |
+| `dataset_key` | string | Which dataset this group belongs to; grouping is scoped per dataset |
+| `group_id` | string | Stable identifier, embeds `dataset_key` so it's globally unique even if two datasets reuse the same lesion/patient/image ID |
 | `group_type` | string | Example: `patient`, `lesion`, `duplicate`, `singleton` |
 | `group_source` | string | Source of the grouping rule |
 | `image_count` | integer | Number of images in the group |
@@ -165,71 +173,62 @@ Rejected images and records with validation failures.
 
 ### `gold.manifest_rows`
 
-One row per image in a training-ready release. Shared across datasets (like
-every Silver table) but versioned by `dataset_version` rather than
-dataset-prefixed — more than one release can coexist in this table (e.g.
-`sample-v1` alongside a later full-scale `v1`), and the same `(dataset_key,
-image_id)` can legitimately appear under several different `dataset_version`s
-(each manifest is an independent, self-contained selection — nothing requires
-an image's split to be consistent across manifests).
+One row per image in a training-ready release. Shared across datasets (like every Silver table)
+but versioned by `dataset_version`, not dataset-prefixed — more than one release coexists here
+(e.g. `sample-v1` alongside a later `v1`), and the same `(dataset_key, image_id)` can legitimately
+appear under several `dataset_version`s (each manifest is an independent, self-contained
+selection — nothing requires an image's split to match across manifests).
 
 | Field | Type | Notes |
 |---|---|---|
 | `dataset_version` | string | Release tag, e.g. `sample-v1` or `v1` |
-| `dataset_key` | string | Which source dataset this row came from — `image_id` is only unique together with `dataset_key`, not globally, same convention as `silver.image_inventory` |
+| `dataset_key` | string | Which source dataset this row came from — `image_id` is unique only together with `dataset_key`, same convention as `silver.image_inventory` |
 | `image_id` | string | Stable identifier from the source dataset |
-| `bronze_uri` | string | Archive-resolvable pointer to this image's bytes (`archive:<source_archive_uri>#<archive_member_path>`) — alone sufficient to find the image's bytes at Gold shard-export time, no Bronze lookup needed |
+| `bronze_uri` | string | Archive-resolvable pointer to this image's bytes — alone sufficient at Gold shard-export time, no Bronze lookup needed |
 | `source_checksum` | string | SHA-256 from Bronze |
-| `label` | string | Final normalized training label for this release — a direct passthrough of a Silver label column (e.g. `malignancy`) for `sample-v1`; a future release may source `label` from a different column (e.g. a cross-dataset `specific_diagnosis` crosswalk — not designed yet, see `docs/decisions/003-silver-label-columns-not-map.md` for why that's deliberately deferred) |
-| `group_id` | string | Leakage-control group, from `silver.leakage_groups` — no `group_id` is ever split across `split` values within one `dataset_version`. Note this only guards against leakage *within* one dataset's own groups — a duplicate image across two different `dataset_key`s in the same manifest is not currently detected, see `docs/project-checklist.md`'s Gold section |
+| `label` | string | Final normalized training label — a direct passthrough of a Silver label column (e.g. `malignancy`) for `sample-v1`; a future release could source it from elsewhere (e.g. a cross-dataset `specific_diagnosis` crosswalk, deliberately deferred — `docs/decisions/003-silver-label-columns-not-map.md`) |
+| `group_id` | string | Leakage-control group from `silver.leakage_groups` — never split across `split` values within one `dataset_version`. Guards only *within* one dataset's own groups; cross-dataset duplicates are a separate check, `assert_no_cross_dataset_duplicate_checksums` |
 | `split` | string | `train`, `validation`, or `test` |
-| `sample_seed` | integer | Seed used to select which images are in this manifest at all — deliberately separate from `split_seed`, so a later release can reuse the exact same image pool (e.g. the same selection under a different `preprocessing_version`) while only `split_seed` differs, or vice versa. Reusing `sample_seed` this way is cheap at the manifest level (metadata rows only) — but see the Gold shard export section below before also exporting shards for both: doing so duplicates identical bytes for no benefit, since Gold shard export never applies preprocessing (`docs/decisions/010-pin-data-and-preprocessing-per-training-run.md`) |
-| `split_seed` | integer | Seed used to divide the selected images into `train`/`validation`/`test` |
-| `preprocessing_version` | string | This release's *default/intended* preprocessing tag (e.g. `"sample-v1"`) — documentation, not a binding constraint enforced by this table. What preprocessing a *specific trained model* actually used is pinned per training run instead, by `config/gold/training_runs/<name>.yaml`'s own `preprocessing_version` field (which may differ from this one) — see the `config/preprocessing/<name>.yaml` and `config/gold/training_runs/<name>.yaml` contracts below |
+| `sample_seed` | integer | Seed selecting which images are in this manifest — separate from `split_seed` so a later release can reuse the same image pool under a different `preprocessing_version` (cheap at this metadata level; see the Gold shard export section before also exporting shards for both) |
+| `split_seed` | integer | Seed dividing the selected images into `train`/`validation`/`test` |
+| `preprocessing_version` | string | This release's *default/intended* preprocessing tag — documentation, not enforced here. What a *specific trained model* actually used is pinned per training run instead, by `config/gold/training_runs/<name>.yaml` (which may differ from this) |
 | `manifest_row_hash` | string | `sha2`-256 over `dataset_key`\|`image_id`\|`label`\|`split`\|`source_checksum`, for row-level integrity checking |
-| `created_at` | timestamp | When this row was (last) written — refreshed on rerun, same convention as `silver.image_inventory.validated_at`; not a strict immutable-creation guarantee |
+| `created_at` | timestamp | When (last) written — refreshed on rerun, same convention as `silver.image_inventory.validated_at`; not a strict immutable-creation guarantee |
 
-`MERGE INTO` is keyed on (`dataset_version`, `dataset_key`, `image_id`)
-together — `dataset_version` is in the key, unlike Silver's `(dataset_key,
-image_id)`, because this table holds more than one release at once; without
-it, writing a second release would collide with the first.
+`MERGE INTO` is keyed on (`dataset_version`, `dataset_key`, `image_id`) — `dataset_version` is in
+the key, unlike Silver's `(dataset_key, image_id)`, since this table holds more than one release
+at once; without it, a second release would collide with the first.
 
 ### `gold.manifest_registry`
 
-A view over `gold.manifest_rows`, one row per `dataset_version`, summarizing
-which datasets/labels/splits a manifest contains (dataset keys, image and
-per-split counts, distinct label values, preprocessing versions, sample/split
-seeds, first/last write time). Not a table — everything in it is fully derivable from
-`manifest_rows` by aggregation, so it can never drift out of sync and needs no
-separate write path. This is the answer to "which manifests do I have, and
-what's in each one" — query it instead of hand-writing the aggregation.
+A view over `gold.manifest_rows`, one row per `dataset_version`, summarizing what a manifest
+contains (dataset keys, image/per-split counts, distinct label values, preprocessing versions,
+sample/split seeds, first/last write time). Not a table — fully derivable from `manifest_rows` by
+aggregation, so it can't drift out of sync and needs no separate write path. Query it for "which
+manifests do I have, and what's in each one" instead of hand-writing the aggregation.
 
-**Deferred for the `sample-v1` release** (built for cheap Gold-pipeline
-iteration, not a real release): `gold.dataset_card` is not generated. Additive
-and cheap to add once there's a real consumer — a dataset card documenting an
-actual released artifact.
+**Deferred for `sample-v1`** (built for cheap Gold-pipeline iteration, not a real release):
+`gold.dataset_card` isn't generated. Additive and cheap to add once there's a real consumer.
 
 ### Gold shard export
 
 `notebooks/31_export_gold_shards.ipynb` packs a published `dataset_version`'s images into
 per-split MosaicML shard sets (`streaming.MDSWriter`) at
 `<storage_root>/gold/<dataset_version>/shards/<split>/`, for local-machine and Databricks
-ML-cluster training to read via `streaming.StreamingDataset`. This has no table of its own: it's
-a derived, fully rebuildable cache — never a second source of truth for image bytes —
-regenerated by rerunning the export notebook (which always fully rewrites every split's shard
-directory) rather than incrementally synced. See `docs/decisions/006-stream-archives-no-blob-storage.md`
-for why. **How long a shard export is actually kept around is a separate, currently undecided
-question** — no cleanup runs by default and no cloud-storage lifecycle policy is assumed; see
-`docs/decisions/009-gold-shard-retention-undecided.md`. Each shard sample carries `image` (raw
-encoded bytes, `bytes`), `label`, `image_id`, `dataset_key`, `group_id` (`str`) — the same
-passthrough columns `gold.manifest_rows` already has, never transformed pixels (preprocessing
-stays runtime-only, see `docs/decisions/001-preprocessing-at-runtime.md`).
+ML-cluster training to read via `streaming.StreamingDataset`. No table of its own — a derived,
+fully rebuildable cache, never a second source of truth for image bytes, regenerated by rerunning
+the export notebook (which fully rewrites every split's shard directory) rather than incrementally
+synced (`docs/decisions/006-stream-archives-no-blob-storage.md`). How long an export is actually
+kept around is still undecided — no cleanup runs by default, no lifecycle policy assumed
+(`docs/decisions/009-gold-shard-retention-undecided.md`). Each shard sample carries `image` (raw
+encoded bytes), `label`, `image_id`, `dataset_key`, `group_id` — the same passthrough columns
+`gold.manifest_rows` already has, never transformed pixels (`docs/decisions/001-preprocessing-at-runtime.md`).
 
-**A shard export is keyed by `dataset_version` alone, never by `preprocessing_version`.** Exporting
-shards writes raw, unpreprocessed bytes regardless of what a manifest's `preprocessing_version`
-says — two `dataset_version`s that select the exact same images but differ only in
-`preprocessing_version` would export two byte-for-byte identical shard sets. Don't export shards
-for a `dataset_version` created solely to carry a different `preprocessing_version` label; see
+**Keyed by `dataset_version` alone, never by `preprocessing_version`.** Exporting writes raw,
+unpreprocessed bytes regardless of a manifest's `preprocessing_version` — two `dataset_version`s
+selecting the same images but differing only in `preprocessing_version` would export two
+byte-for-byte identical shard sets. Don't export shards for a `dataset_version` created solely to
+carry a different `preprocessing_version` label; see
 `docs/decisions/010-pin-data-and-preprocessing-per-training-run.md`.
 
 ### `gold.dataset_card`
@@ -247,14 +246,14 @@ Minimum contents:
 
 ### `config/preprocessing/<name>.yaml`
 
-Implemented (`docs/decisions/011-baseline-training-framework-and-registry-sync.md`) as a named,
-reusable preprocessing recipe — decoupled from any one Gold release, not stored *with* one, since
-`docs/decisions/010-pin-data-and-preprocessing-per-training-run.md` established that the same
-image selection can be trained under several different preprocessing recipes without re-exporting
-shards. A `config/gold/training_runs/<name>.yaml` (below) references one by its
-`preprocessing_version` name. Loaded/validated by `ml.preprocessing.load_preprocessing_config`,
-resolved into `torchvision` transforms by `ml.preprocessing.build_transforms` at training/inference
-time only — never applied to stored bytes (`docs/decisions/001-preprocessing-at-runtime.md`).
+A named, reusable preprocessing recipe (`docs/decisions/011-baseline-training-framework-and-registry-sync.md`)
+— decoupled from any one Gold release, not stored *with* one, since the same image selection can
+train under several preprocessing recipes without re-exporting shards
+(`docs/decisions/010-pin-data-and-preprocessing-per-training-run.md`). Referenced by name from
+`config/gold/training_runs/<name>.yaml` (below). Loaded/validated by
+`ml.preprocessing.load_preprocessing_config`, resolved into `torchvision` transforms by
+`ml.preprocessing.build_transforms` at training/inference time only — never applied to stored
+bytes (`docs/decisions/001-preprocessing-at-runtime.md`).
 
 | Field | Type | Notes |
 |---|---|---|

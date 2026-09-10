@@ -2,76 +2,54 @@
 
 > A portfolio project demonstrating Azure, Databricks, and reproducible computer-vision data engineering.
 
-An Azure and Databricks-based ISIC 2019 data platform that turns raw images and metadata into validated Bronze, Silver, and Gold data products for a reproducible classifier workflow.
+An Azure and Databricks-based data platform that turns raw dermatology images and metadata into validated Bronze, Silver, and Gold data products, and trains a baseline classifier against them. The goal it's built around:
 
-## What this repository contains
-
-- `src/`: pipeline implementation for ingest, validate, publish, and train
-- `src/data_platform/`: shared, dataset-agnostic helpers — `files.py` (filesystem/archive handling), `dataset_layout.py` (per-dataset Volume paths/table names, scoped to one dataset — not Gold, see the module docstring), `validate.py` (image validation), `labels.py` (canonical label vocabulary and diagnosis-hierarchy normalization, shared by every onboarded dataset so far), `sampling.py` (pure-Python Gold sampling and leakage-aware split assignment), `shard_export.py` (pure-Python Gold shard packing — no Spark session needed, kept separate from `spark_io.py` for that reason), `spark_io.py` (Bronze/Silver/Gold Spark pipeline functions), `datasets/` (a landing spot for a *future* dataset whose label logic doesn't fit `labels.py`'s shape — empty until one needs it)
-- `src/ml/`: baseline classifier training — pure Python plus `torch`/`torchvision`/`mlflow`/`scikit-learn`, no Spark. `train.py` (the entrypoint, `run_training`, identical whether called from a Databricks notebook or a local `python -m ml.train` script), `training_run.py`/`preprocessing.py` (resolve a named training-run + preprocessing config into everything training needs), `dataset.py` (a `streaming.StreamingDataset` subclass over Gold shards), `metrics.py`, `mlflow_utils.py`, `registry_sync.py` (reads MLflow runs for `gold.training_run_registry`)
-- `config/`: shared storage-root settings and per-release config. `bronze/datasets/<dataset>.yaml` per onboarded source dataset (Bronze/Silver notebooks); `gold/manifests/<name>.yaml` per Gold manifest release (`30_create_gold_manifest.ipynb`), `gold/exports/<name>.yaml` per shard export of an already-published manifest (`31_export_gold_shards.ipynb`), and `gold/training_runs/<name>.yaml` per training run (`40_train_baseline_classifier.ipynb`), pinning one `dataset_version` to one `preprocessing_version`; `preprocessing/<name>.yaml` per named, reusable preprocessing recipe; `storage.yaml` (shared landing/medallion Volume roots, loaded independently by every dataset/Gold notebook) is cross-cutting, not scoped to one dataset or release
-- `tests/`: fixture-backed checks that do not require the full ISIC dataset
-- `docs/`: architecture, data contract, Silver validation rules, ADRs (`docs/decisions/`), project checklist, and lessons learned
-- `AGENT.md`: canonical repo-local agent instructions and working context
-- `notebooks/`: Databricks setup, Bronze ingestion, Silver validation, and Gold publishing notebooks
+> A reviewer can trace a trained model back to an immutable Gold manifest, a validated Silver inventory, and the exact Bronze image checksums used to create it.
 
 ## Architecture
 
-The platform keeps source archives in a landing volume as the sole permanent store of image bytes (no image bytes are ever stored in a table, or extracted as individual Volume objects, at any layer — see `docs/decisions/006-stream-archives-no-blob-storage.md`), validates and normalizes records in Silver by streaming candidate images directly from those archives, publishes a versioned training manifest in Gold, and packs a published manifest's images into a derived MosaicML shard export for training.
+Source archives in a landing volume are the *sole* permanent store of image bytes — nothing is ever extracted to a Volume as an individual file, and no layer stores bytes in a table. Every layer that needs actual pixels streams them from the archive on demand instead:
 
-See [docs/architecture.md](docs/architecture.md) for the system layout, Unity Catalog storage structure, and Databricks execution model.
+![Bronze/Silver/Gold data pipeline](docs/assets/architecture.svg)
 
-## Data contract
+Training pins exactly which data *and* preprocessing a run used, then records it — not something you have to trust the training code got right:
 
-The Gold manifest is the training contract. It is built from Bronze source metadata, Silver validation results, leakage-control groups, and versioned preprocessing settings.
+![Training and reproducibility flow](docs/assets/architecture-training.svg)
 
-See [docs/data_contract.md](docs/data_contract.md) for the canonical table schemas and file outputs.
+See [`docs/architecture.md`](docs/architecture.md) for the full system layout and Databricks execution model, and [`docs/data_contract.md`](docs/data_contract.md) for every table schema.
+
+## What's here
+
+- **`src/data_platform/`** — the Bronze/Silver/Gold pipeline: archive streaming, image validation, label normalization, leakage-aware sampling, Spark orchestration.
+- **`src/ml/`** — baseline classifier training (PyTorch/torchvision), runnable identically from a Databricks notebook or a local script, with MLflow logging and pinned data+preprocessing provenance.
+- **`config/`** — one versioned YAML file per dataset, Gold manifest, shard export, preprocessing recipe, and training run — never inline values in a notebook.
+- **`notebooks/`** — the numbered pipeline stages (`00` setup → `10` Bronze → `20` Silver → `30`/`31` Gold → `40` training), run manually in sequence.
+- **`tests/`** — fixture-backed checks (real tiny archives/shards/MLflow stores, no mocks) for everything that doesn't require a live Spark session.
+- **`docs/`** — architecture, data contract, an [ADR log](docs/decisions/) recording every non-obvious design decision (and why it changed), and a [project checklist](docs/project-checklist.md) tracking real status.
+- **[`AGENT.md`](AGENT.md)** — the canonical technical reference: conventions, contracts, and current working state, for a human or an AI picking this project back up.
+
+## Key design decisions
+
+A few of the more interesting calls, out of the [full decision log](docs/decisions/):
+
+- [Stream from source archives, never store image bytes anywhere else](docs/decisions/006-stream-archives-no-blob-storage.md) — the central storage decision, after an earlier design ([superseded](docs/decisions/002-store-bronze-images-as-delta-blobs.md)) cost $17 in 90 minutes on per-object cloud writes (see [lessons learned](docs/lessons-learned.md)).
+- [Verify source-archive immutability by checksum, not assumption](docs/decisions/008-immutable-source-archives-checksum-verified.md) — every layer that streams bytes re-verifies them against what Bronze originally recorded.
+- [Pin exactly which data + preprocessing a training run used](docs/decisions/010-pin-data-and-preprocessing-per-training-run.md) — so a trained model's reported metrics are never just a matter of trusting training-code discipline.
+- [Retention for derived artifacts is an open question, not a default](docs/decisions/009-gold-shard-retention-undecided.md) — a deliberate retraction of an earlier, premature policy.
 
 ## Local setup
-
-Prerequisites:
-
-- Git
-- Python 3.11
-- `uv`
-- PyCharm or another IDE
-
-Installation:
 
 ```powershell
 uv venv --python 3.11 .venv
 .venv\Scripts\Activate.ps1
 uv sync --extra dev
-```
-
-Run the tests:
-
-```powershell
 uv run pytest
 ```
 
 ## Source data
 
-The project uses the [ISIC Archive](https://www.isic-archive.com/) and the [ISIC Archive API](https://api.isic-archive.com/api/docs/swagger/). Follow the applicable dataset terms, licences, and citation requirements before downloading or redistributing any data.
+Uses the [ISIC Archive](https://www.isic-archive.com/) and the [ISIC Archive API](https://api.isic-archive.com/api/docs/swagger/). Follow the applicable dataset terms, licences, and citation requirements before downloading or redistributing any data.
 
 ## Development approach
 
-
-This project is built with heavy use of AI tools for iterative code and documentation generation. I review, edit, and validate the output manually, and I keep architectural decisions, implementation quality, and final responsibility under my own control.
-
-The goal is to use AI as an accelerator/amplifier while still maintaining correctness, clarity, and maintainability. 
-
-In general my workflow is to generate smaller sections of code in chunks rather than prompt the AI to "build data engineering pipeline, no mistakes please."
-
-## Notebook flow
-
-- `notebooks/_setup_env.ipynb`: shared Databricks notebook environment setup for imports
-- `notebooks/00_setup_storage_and_shared_tables.ipynb`: shared medallion schemas, storage conventions, and every shared table (`bronze.ingestion_runs`, all of Silver, all of Gold) — created once here since it's identical regardless of dataset
-- `notebooks/isic_2019/05_setup_tables_and_folders.ipynb`: ISIC 2019 Bronze table and volume folder setup
-- `notebooks/isic_2019/10_bronze_ingest.ipynb`: end-to-end Bronze ingestion for ISIC 2019
-- `notebooks/isic_2019/20_silver_validate.ipynb`: label normalization, image validation, and leakage-control grouping for ISIC 2019
-- `notebooks/milk10k/05_setup_tables_and_folders.ipynb`, `10_bronze_ingest.ipynb`, `20_silver_validate.ipynb`: the same flow for MILK10k, the second onboarded dataset
-- `notebooks/30_create_gold_manifest.ipynb`: publishes a `gold.manifest_rows` release spanning every included dataset in one run (top-level, not under a dataset folder). Currently a `sample-v1` release (~100 images per dataset, `malignancy` label) built to iterate on the Gold pipeline cheaply, not the full-scale release. `gold.manifest_registry` (a view) gives an overview of every release published so far
-- `notebooks/31_export_gold_shards.ipynb`: packs a published `dataset_version`'s images into a derived, per-split MosaicML shard export (`streaming.MDSWriter`), streamed directly from the source archives — for local-machine and Databricks ML-cluster training to read via `streaming.StreamingDataset`. Fully rebuildable from the manifest and archives; see `docs/decisions/006-stream-archives-no-blob-storage.md`. How long an export is kept around is undecided — see `docs/decisions/009-gold-shard-retention-undecided.md`
-- `notebooks/40_train_baseline_classifier.ipynb`: trains a baseline PyTorch/torchvision ResNet-18 classifier against a `31` shard export and a versioned preprocessing recipe (`config/gold/training_runs/<name>.yaml`), identically whether run here or via a local `python -m ml.train` invocation (`src/ml/train.py`'s `run_training`) — logs hyperparameters/metrics/the model artifact to MLflow, then syncs training-run provenance into `gold.training_run_registry`. See `docs/decisions/010-pin-data-and-preprocessing-per-training-run.md` and `docs/decisions/011-baseline-training-framework-and-registry-sync.md`
-
+Built with heavy use of AI tools for iterative code and documentation generation, in small reviewed chunks rather than one large unsupervised generation pass. I review, edit, and validate the output manually, and keep architectural decisions, implementation quality, and final responsibility under my own control. I aim to use AI as an accelerant, not a replacement for engineering judgment.
