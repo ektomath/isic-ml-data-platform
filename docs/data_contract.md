@@ -231,6 +231,21 @@ byte-for-byte identical shard sets. Don't export shards for a `dataset_version` 
 carry a different `preprocessing_version` label; see
 `docs/decisions/010-pin-data-and-preprocessing-per-training-run.md`.
 
+**Optional metadata CSV export.** If `config/gold/exports/<name>.yaml` sets
+`export_metadata_csv: true`, the export notebook also writes each `dataset_key`'s raw Bronze
+source metadata (`age_approx`, `sex`, `anatom_site_*`, `diagnosis_*`, `image_type`, etc. — see the
+Bronze contracts above) for exactly this release's images to
+`<storage_root>/gold/<dataset_version>/metadata/<dataset_key>_source_metadata.csv` — one file per
+`dataset_key`, since the two datasets' Bronze metadata schemas don't fully agree. This metadata
+otherwise never travels past Bronze in the pipeline itself (the shards carry only `image`/`label`/
+`image_id`/`dataset_key`/`group_id`), so exporting it here is what makes it reachable at all for
+local use — subgroup analysis, or as auxiliary input to a multimodal (image + tabular/text) model
+alongside the shards (`data_platform.spark_io.export_source_metadata_csv`). The baseline ResNet-18
+classifier (`src/ml/train.py`) doesn't read it today; a model that does would join it in locally by
+`image_id`, and should select/encode fields via a versioned
+`config/metadata_preprocessing/<name>.yaml` (below) rather than an ad hoc local column
+selection — see `docs/decisions/012-pin-metadata-feature-config-per-training-run.md`.
+
 ### `gold.dataset_card`
 
 The dataset card is a Markdown document stored with the Gold release.
@@ -266,18 +281,46 @@ bytes (`docs/decisions/001-preprocessing-at-runtime.md`).
 | `random_seed` | int | Passed to `torch.manual_seed` by `ml.train.run_training` |
 | `framework_runtime_notes` | string | Free text documenting the exact transform compose order for this recipe |
 
+### `config/metadata_preprocessing/<name>.yaml`
+
+A named, versioned recipe for turning raw Bronze source metadata (exported by
+`notebooks/31_export_gold_shards.ipynb`'s optional `export_metadata_csv` step, above) into a
+fixed-length feature vector for a multimodal (image + tabular/text) model — the same "pin the
+recipe, don't hand-edit the data" discipline `config/preprocessing/<name>.yaml` already applies
+to images (`docs/decisions/012-pin-metadata-feature-config-per-training-run.md`). A Bronze column
+not listed under `fields` is implicitly dropped. Referenced by name from
+`config/gold/training_runs/<name>.yaml` (below), same convention as `preprocessing_version`.
+Loaded/validated by `ml.metadata_preprocessing.load_metadata_preprocessing_config`, resolved into
+a feature-vector callable by `ml.metadata_preprocessing.build_metadata_transform` at
+training/inference time only — never applied to the exported CSV itself, which stays a raw,
+unmodified passthrough.
+
+| Field | Type | Notes |
+|---|---|---|
+| `metadata_preprocessing_version` | string | Name this file is referenced by |
+| `fields` | list of field specs | Only these columns are used; everything else in the raw metadata is dropped |
+| `fields[].name` | string | Bronze source-metadata column name (e.g. `age_approx`, `sex`) |
+| `fields[].kind` | string | `numeric` or `categorical` |
+| `fields[].missing_value` | float | `numeric` only — sentinel used when the source value is null or unparseable |
+| `fields[].categories` | list[string] | `categorical` only — fixed vocabulary; order fixes each category's one-hot slot, never derived from a scan |
+| `fields[].unknown_category` | string | `categorical` only — label for the trailing one-hot slot a null or out-of-vocabulary value lands in |
+| `fields[].source_columns` | `{dataset_key: string}`, optional | For a release combining more than one `dataset_key` whose raw column name for this conceptual field differs — maps a `dataset_key` to its actual raw column name. A `dataset_key` not listed falls back to `fields[].name`; omit entirely if every dataset already agrees |
+| `fields[].value_map` | `{dataset_key: {raw_value: string}}`, optional | For a release where a `dataset_key`'s raw *values* for this field don't already match another's — remaps a `dataset_key`'s raw value onto this field's canonical vocabulary before encoding. A `dataset_key` not listed, or a raw value not in its map, passes through unchanged |
+
 ### `config/gold/training_runs/<name>.yaml`
 
-Pins exactly one `dataset_version` to exactly one `preprocessing_version`, plus the hyperparameters
-for one training run. `ml.train`'s entrypoint accepts only this one name — never free-standing
-`dataset_version`/`preprocessing_version` parameters — so there is no code path to train against an
-unpinned pairing. Loaded/validated by `ml.training_run.resolve_training_run`.
+Pins exactly one `dataset_version` to exactly one `preprocessing_version` (and, optionally, one
+`metadata_preprocessing_version`), plus the hyperparameters for one training run. `ml.train`'s entrypoint
+accepts only this one name — never free-standing `dataset_version`/`preprocessing_version`
+parameters — so there is no code path to train against an unpinned pairing. Loaded/validated by
+`ml.training_run.resolve_training_run`.
 
 | Field | Type | Notes |
 |---|---|---|
 | `training_run_name` | string | Name this file is referenced by |
 | `dataset_version` | string | Which Gold release/shard export to train against |
 | `preprocessing_version` | string | Which `config/preprocessing/<name>.yaml` to apply |
+| `metadata_preprocessing_version` | string, optional | Which `config/metadata_preprocessing/<name>.yaml` to apply, for a multimodal model. Omitted for an image-only run (e.g. the baseline ResNet-18 classifier) |
 | `label_values` | list[string] | Fixes the class-index mapping deterministically (index = position in this list) — not derived from a shard scan |
 | `architecture` | string | Currently only `resnet18` is implemented (`ml.train.build_model`) |
 | `pretrained` | bool | Whether to start from ImageNet-pretrained weights (needs outbound network access on first use) |

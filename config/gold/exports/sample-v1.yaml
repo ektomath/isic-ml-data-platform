@@ -16,3 +16,11 @@
 # gold.manifest_registry is a view rather than a maintained table).
 dataset_version: sample-v1
 shard_size_limit_bytes: 67108864  # 64 MiB, MDSWriter's own shard-splitting threshold -- tune once run against real image sizes
+
+# Optional, defaults to false. If true, also exports each dataset_key's raw Bronze source
+# metadata (age_approx, sex, anatom_site_*, diagnosis_*, image_type, etc. -- see
+# docs/data_contract.md's Bronze contracts) for exactly this release's images, as one CSV file
+# per dataset_key under <storage_root>/gold/<dataset_version>/metadata/ -- otherwise unreachable
+# past Bronze. For local subgroup analysis, or as auxiliary input to a multimodal (image +
+# tabular/text) model; the baseline ResNet-18 classifier doesn't read it today.
+export_metadata_csv: true

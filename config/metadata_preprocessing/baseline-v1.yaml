@@ -1,0 +1,47 @@
+# A named, versioned recipe for turning raw Bronze source metadata (exported by
+# notebooks/31_export_gold_shards.ipynb's optional export_metadata_csv step -- see
+# docs/data_contract.md's Gold shard export section) into a fixed-length feature vector for a
+# multimodal (image + tabular) model. Loaded/validated by
+# ml.metadata_preprocessing.load_metadata_preprocessing_config, resolved into a runtime transform
+# by ml.metadata_preprocessing.build_metadata_transform. See
+# docs/decisions/012-pin-metadata-feature-config-per-training-run.md for why this exists as a
+# versioned config rather than an ad hoc local column selection.
+#
+# A Bronze column not listed under `fields` below is implicitly dropped -- this file *is* the
+# record of which fields a model that references it actually used, and how.
+#
+# TEMPLATE: the `categories` lists below are a starting point, not verified against a real
+# exported CSV's actual distinct values -- inspect
+# <storage_root>/gold/<dataset_version>/metadata/isic_2019_source_metadata.csv yourself and
+# correct them (including case/spelling) before training against this file for real. An
+# out-of-vocabulary or differently-cased value silently lands in `unknown_category`, not an
+# error -- see ml.metadata_preprocessing._encode_categorical.
+metadata_preprocessing_version: baseline-v1
+
+fields:
+  - name: age_approx
+    kind: numeric
+    missing_value: -1.0  # sentinel for a null/unparseable source value -- never silently 0, a real age
+
+  - name: sex
+    kind: categorical
+    categories: [male, female]
+    unknown_category: unknown
+
+  - name: anatom_site_1
+    kind: categorical
+    categories:
+      - anterior torso
+      - head/neck
+      - lateral torso
+      - lower extremity
+      - oral/genital
+      - palms/soles
+      - posterior torso
+      - upper extremity
+    unknown_category: unknown
+
+  - name: melanocytic
+    kind: categorical
+    categories: ["true", "false"]
+    unknown_category: unknown

@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from data_platform.dataset_layout import load_yaml_config
+from ml.metadata_preprocessing import load_metadata_preprocessing_config
 from ml.preprocessing import load_preprocessing_config, require_fields
 
 TRAINING_RUN_REQUIRED_FIELDS = (
@@ -44,6 +45,8 @@ class TrainingRunSpec:
     optimizer: str
     mlflow_experiment: str | None
     registered_model_name: str | None
+    metadata_preprocessing_version: str | None
+    metadata_preprocessing_config: dict | None
 
 
 def load_training_run_config(config_root: str | Path, training_run_name: str) -> dict:
@@ -59,9 +62,23 @@ def resolve_training_run(config_root: str | Path, training_run_name: str) -> Tra
     """Load and validate training_run_name's config, then load and validate its referenced
     preprocessing config -- the single call that turns a name into a fully resolved,
     ready-to-train-with spec. Raises ValueError on any missing/malformed field in either config.
+
+    `metadata_preprocessing_version` is optional -- most training runs are image-only, so most
+    configs omit it. When set, its referenced config/metadata_preprocessing/<name>.yaml is
+    loaded and validated the same way preprocessing_version's is, so a multimodal (image +
+    tabular/text) model can build its metadata feature vector
+    (ml.metadata_preprocessing.build_metadata_transform) from a pinned, versioned recipe rather
+    than an ad hoc local column selection -- see
+    docs/decisions/012-pin-metadata-feature-config-per-training-run.md.
     """
     config = load_training_run_config(config_root, training_run_name)
     preprocessing_config = load_preprocessing_config(config_root, config["preprocessing_version"])
+    metadata_preprocessing_version = config.get("metadata_preprocessing_version")
+    metadata_preprocessing_config = (
+        load_metadata_preprocessing_config(config_root, metadata_preprocessing_version)
+        if metadata_preprocessing_version is not None
+        else None
+    )
 
     return TrainingRunSpec(
         training_run_name=config["training_run_name"],
@@ -77,4 +94,6 @@ def resolve_training_run(config_root: str | Path, training_run_name: str) -> Tra
         optimizer=config.get("optimizer", "adam"),
         mlflow_experiment=config.get("mlflow_experiment"),
         registered_model_name=config.get("registered_model_name"),
+        metadata_preprocessing_version=metadata_preprocessing_version,
+        metadata_preprocessing_config=metadata_preprocessing_config,
     )

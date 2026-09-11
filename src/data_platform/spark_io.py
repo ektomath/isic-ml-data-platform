@@ -100,6 +100,14 @@ def bronze_image_uri(source_archive_uri, archive_member_path):
     return F.concat(F.lit("archive:"), source_archive_uri, F.lit("#"), archive_member_path)
 
 
+def _image_ids_df(spark, image_ids: list[str]):
+    """Build a single-column (image_id STRING) DataFrame from a plain Python list, for an inner
+    join against a table -- shared by every caller that needs to filter a table down to a known
+    set of image_ids (validate_images' missing-candidate rejection, export_source_metadata_csv),
+    instead of each re-typing the same createDataFrame call."""
+    return spark.createDataFrame([{"image_id": image_id} for image_id in image_ids], "image_id STRING")
+
+
 def _scratch_table(silver_tables: dict, name: str) -> str:
     """Build a scratch table name in the same catalog.schema as the Silver tables.
     Overwritten on every run, so nothing here is meant to persist between runs."""
@@ -628,7 +636,7 @@ def validate_images(
 
     if missing_candidates:
         unmatched_image_ids = [candidate["image_id"] for candidate in missing_candidates]
-        missing_ids_df = spark.createDataFrame([{"image_id": image_id} for image_id in unmatched_image_ids], "image_id STRING")
+        missing_ids_df = _image_ids_df(spark, unmatched_image_ids)
         missing_df = label_valid_df.join(missing_ids_df, on="image_id", how="inner")
         reject_rows(
             spark,
@@ -1023,8 +1031,8 @@ def print_gold_outputs(
 
 
 # ============================================================================
-# Gold export pipeline — load_manifest_rows_for_export, print_export_outputs,
-# remove_expired_exports, called in that order from
+# Gold export pipeline — load_manifest_rows_for_export, export_source_metadata_csv,
+# print_export_outputs, remove_expired_exports, called in that order from
 # notebooks/31_export_gold_shards.ipynb, after a dataset_version's manifest rows
 # already exist (written by write_gold_manifest_rows above). The actual
 # shard-packing step between these two, `write_gold_shards_for_splits`, needs no
@@ -1061,6 +1069,46 @@ def load_manifest_rows_for_export(spark, gold_tables: dict, dataset_version: str
         rows_by_split[row["split"]].append(row.asDict())
 
     return dict(rows_by_split)
+
+
+def export_source_metadata_csv(
+    spark, source_metadata_table: str, dataset_key: str, image_ids: list[str], destination_path: str
+) -> int:
+    """Write source_metadata_table's rows for exactly this release's image_ids to one CSV file
+    at destination_path -- age/sex/anatomic-site/diagnosis-hierarchy and every other raw Bronze
+    metadata column (see docs/data_contract.md's Bronze contracts) that otherwise never travels
+    any further down the pipeline than Bronze, unreachable once a shard export is downloaded
+    locally. Exported alongside the shards for local subgroup analysis, or for a multimodal
+    (image + tabular/text) model to join in by image_id -- the baseline ResNet-18 classifier
+    doesn't read it, but that's this project's current model, not a constraint this export
+    enforces.
+
+    One dataset_key at a time (source_metadata_table is already one dataset_key's own Bronze
+    table, e.g. bronze.isic_2019_source_metadata) rather than a combined export across a
+    multi-dataset_key release -- different datasets' source metadata schemas genuinely differ
+    (docs/data_contract.md's two Bronze contracts don't share every column), so one CSV per
+    dataset_key avoids forcing a lossy common schema. The output still gets a `dataset_key`
+    column stamped on (source_metadata_table itself has none -- it's already scoped to one
+    dataset), so a multimodal model combining more than one dataset_key's CSV can tell which
+    dataset each row came from -- ml.metadata_preprocessing.build_metadata_transform's per-field
+    `source_columns`/`value_map` reconciliation keys off exactly this column (see
+    docs/decisions/012-pin-metadata-feature-config-per-training-run.md).
+
+    Collected to the driver via toPandas() and written with pandas rather than Spark's own CSV
+    writer, so destination_path is one real file, not a directory of part-files to reassemble --
+    the same "collect small metadata to the driver" posture as build_gold_candidate_groups and
+    load_manifest_rows_for_export, since this is release-scoped metadata rows, never image
+    bytes. Returns the row count written.
+    """
+    image_ids_df = _image_ids_df(spark, image_ids)
+    metadata_pdf = (
+        spark.table(source_metadata_table)
+        .join(image_ids_df, on="image_id", how="inner")
+        .withColumn("dataset_key", F.lit(dataset_key))
+        .toPandas()
+    )
+    metadata_pdf.to_csv(destination_path, index=False)
+    return len(metadata_pdf)
 
 
 def print_export_outputs(spark, display, dataset_version: str, per_split_summaries: dict) -> None:
