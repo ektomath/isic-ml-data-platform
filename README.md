@@ -42,7 +42,7 @@ New to the project? [How it works](docs/how-it-works.md) is a 10-minute walkthro
 - **`config/`** — one versioned YAML file per dataset, Gold manifest, shard export, preprocessing recipe, and training run — never inline values in a notebook.
 - **`notebooks/`** — the numbered pipeline stages (`00` setup → `10` Bronze → `20` Silver → `30`/`31` Gold → `40` training), run manually in sequence.
 - **`tests/`** — fixture-backed checks (real tiny archives/shards/MLflow stores, no mocks) for everything that doesn't require a live Spark session.
-- **`docs/`** — the [walkthrough](docs/how-it-works.md), architecture, data contract, [one page per dataset](docs/datasets/README.md), and an [ADR log](docs/decisions/) recording every non-obvious design decision (and why it changed).
+- **`docs/`** — the [walkthrough](docs/how-it-works.md), architecture, data contract, [one page per dataset](docs/datasets/README.md), and [architecture decision records (ADRs)](docs/decisions/): short write-ups of every non-obvious design decision (and why it changed).
 
 ## Key design decisions
 
