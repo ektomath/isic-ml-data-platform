@@ -17,5 +17,6 @@ If you only read two, read 006 and 010.
 | [010](010-pin-data-and-preprocessing-per-training-run.md) | Each training run pins one dataset version and one preprocessing version | Accepted |
 | [011](011-baseline-training-framework-and-registry-sync.md) | Baseline training framework, config shapes, and registry sync | Accepted |
 | [012](012-pin-metadata-feature-config-per-training-run.md) | Metadata feature engineering is pinned per training run too | Accepted |
+| [013](013-record-git-commit-on-releases-and-runs.md) | Gold releases and training runs record their Git commit, and refuse to run without one | Accepted |
 
 There is no ADR 005; the number was skipped.

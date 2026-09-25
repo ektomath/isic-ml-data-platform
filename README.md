@@ -19,6 +19,8 @@ Adding a dataset takes a config file, its own Bronze notebooks for the parts tha
 | Gold (manifest and training shards) | ✅ `sample-v1` manifest and shards built on Databricks |
 | Baseline training | 🟨 Written and smoke-tested locally on tiny fixture shards; never run on Databricks or on the real shards |
 
+Gold releases and training runs both record the Git commit of the code that produced them, and refuse to run without one. On Databricks the commit is read from the workspace Git folder through the Databricks API; that lookup hasn't been verified on a real workspace yet.
+
 What's next: a first real training run on the `sample-v1` shards, a full-scale Gold release instead of the 200-image sample, and scheduled orchestration (Databricks Jobs) in place of running the notebooks by hand.
 
 ## Architecture

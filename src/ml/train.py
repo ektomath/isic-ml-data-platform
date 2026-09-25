@@ -23,7 +23,8 @@ from torch import nn
 from data_platform.dataset_layout import join_storage_path, load_yaml_config
 from ml.dataset import build_dataloader, label_to_index_map
 from ml.metrics import compute_classification_metrics
-from ml.mlflow_utils import configure_mlflow_tracking, configure_model_registry, current_git_commit
+from data_platform.provenance import resolve_git_commit
+from ml.mlflow_utils import configure_mlflow_tracking, configure_model_registry
 from ml.preprocessing import build_transforms
 from ml.training_run import resolve_training_run
 
@@ -198,6 +199,7 @@ def run_training(
     # Ordered deliberately to fail fast: cheap/local checks first, then the network-dependent
     # MLflow setup, and only then the expensive part (reading every split's shard index).
     config_root = Path(config_root) if config_root is not None else DEFAULT_CONFIG_ROOT
+    git_commit = resolve_git_commit()
     spec = resolve_training_run(config_root, training_run_name)
     random_seed = spec.preprocessing_config["random_seed"]
     torch.manual_seed(random_seed)
@@ -259,7 +261,7 @@ def run_training(
                 "learning_rate": spec.learning_rate,
                 "optimizer": spec.optimizer,
                 "random_seed": random_seed,
-                "git_commit": current_git_commit(),
+                "git_commit": git_commit,
                 "device": resolved_device,
             }
         )

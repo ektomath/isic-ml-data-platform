@@ -29,6 +29,7 @@ def test_list_training_run_rows_returns_only_tagged_runs(tmp_path, monkeypatch):
             "preprocessing_version": "sample-v1",
         },
     )
+    client.log_param(tagged_run.info.run_id, "git_commit", "abc123")
     client.create_run(experiment_id)  # a run with no tags -- should be skipped, not raised on
 
     rows = list_training_run_rows(client, "baseline_training")
@@ -40,7 +41,25 @@ def test_list_training_run_rows_returns_only_tagged_runs(tmp_path, monkeypatch):
         "dataset_version": "sample-v1",
         "preprocessing_version": "sample-v1",
         "mlflow_experiment_id": experiment_id,
+        "git_commit": "abc123",
     }
+
+
+def test_list_training_run_rows_leaves_git_commit_empty_for_older_runs(tmp_path, monkeypatch):
+    client = _real_local_client(tmp_path, monkeypatch)
+    experiment_id = client.create_experiment("baseline_training")
+    client.create_run(
+        experiment_id,
+        tags={
+            "training_run_name": "sample-v1-resnet18",
+            "dataset_version": "sample-v1",
+            "preprocessing_version": "sample-v1",
+        },
+    )  # logged before git_commit was required -- no git_commit param
+
+    rows = list_training_run_rows(client, "baseline_training")
+
+    assert rows[0]["git_commit"] is None
 
 
 def test_list_training_run_rows_returns_empty_list_for_unknown_experiment(tmp_path, monkeypatch):

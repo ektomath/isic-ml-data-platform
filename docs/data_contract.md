@@ -134,10 +134,11 @@ One row per image in a training release. Several releases coexist, keyed by `dat
 | `preprocessing_version` | string | The release's intended default only. What a trained model actually used is pinned in its training-run config |
 | `manifest_row_hash` | string | SHA-256 over `dataset_key`, `image_id`, `label`, `split` and `source_checksum` |
 | `created_at` | timestamp | When last written; refreshed on rerun |
+| `git_commit` | string | Commit of the code that wrote the release. Always set for new releases; empty for rows written before it was added |
 
 ### `gold.manifest_registry` (view)
 
-One row per `dataset_version`, derived from `gold.manifest_rows` by aggregation: which datasets it includes, image and per-split counts, label values, preprocessing versions, seeds, and first and last write time. Because it's a view, it can't drift out of sync.
+One row per `dataset_version`, derived from `gold.manifest_rows` by aggregation: which datasets it includes, image and per-split counts, label values, preprocessing versions, seeds, the git commits that wrote it, and first and last write time. Because it's a view, it can't drift out of sync.
 
 ### `gold.training_run_registry`
 
@@ -151,6 +152,7 @@ One row per MLflow training run. Synced from MLflow on demand by `notebooks/40_t
 | `preprocessing_version` | string | From the same config |
 | `mlflow_experiment_id` | string | MLflow experiment |
 | `created_at` | timestamp | When synced, not when the run started |
+| `git_commit` | string | Commit of the code that ran training, from the run's MLflow params. Empty only for runs logged before it was required |
 
 ### Gold shard export
 
@@ -215,5 +217,5 @@ A versioned recipe for turning exported Bronze metadata into a fixed-length feat
 - No duplicate physical image copies in any layer, except the Gold shard export, which is a rebuildable cache ([ADR 006](decisions/006-stream-archives-no-blob-storage.md)).
 - Every accepted Silver image has an archive locator, a source checksum, and at least one non-null label; rows with no label are rejected.
 - Every Gold row maps back to a `silver.image_inventory` row.
-- Every Gold release is reproducible from the source archives, its manifest config and its seeds. The Git commit is recorded per training run in MLflow, not per Gold release.
+- Every Gold release is reproducible from the source archives, its manifest config, its seeds and the Git commit recorded on its rows.
 - Rejected rows keep enough context to explain why they were excluded.

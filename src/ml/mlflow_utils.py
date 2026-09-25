@@ -11,7 +11,6 @@ gold.training_run_registry own instead.
 from __future__ import annotations
 
 import os
-import subprocess
 
 import mlflow
 
@@ -65,17 +64,3 @@ def configure_model_registry(registry_uri: str | None = None) -> None:
     advanced overrides, not normal use.
     """
     mlflow.set_registry_uri(registry_uri if registry_uri is not None else "databricks-uc")
-
-
-def current_git_commit() -> str | None:
-    """Best-effort current commit hash, logged as an MLflow param for lineage. Returns None
-    (never raises) if git isn't available or this isn't a git checkout -- a training run on a
-    Databricks cluster with a plain file copy of the repo, rather than a real git checkout,
-    shouldn't fail just because this one param can't be resolved."""
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "HEAD"], capture_output=True, text=True, check=True, timeout=5
-        )
-        return result.stdout.strip()
-    except Exception:
-        return None

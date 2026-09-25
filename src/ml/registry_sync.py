@@ -26,7 +26,8 @@ def list_training_run_rows(mlflow_client, experiment_name: str) -> list[dict]:
     this project's concern.
 
     Returns [{mlflow_run_id, training_run_name, dataset_version, preprocessing_version,
-    mlflow_experiment_id}, ...] -- ready for data_platform.spark_io.write_training_run_registry_rows.
+    mlflow_experiment_id, git_commit}, ...] -- git_commit is the run's logged param, None for
+    a run logged before commits were required -- ready for data_platform.spark_io.write_training_run_registry_rows.
     """
     experiment = mlflow_client.get_experiment_by_name(experiment_name)
     if experiment is None:
@@ -44,6 +45,7 @@ def list_training_run_rows(mlflow_client, experiment_name: str) -> list[dict]:
                 "dataset_version": tags["dataset_version"],
                 "preprocessing_version": tags["preprocessing_version"],
                 "mlflow_experiment_id": experiment.experiment_id,
+                "git_commit": run.data.params.get("git_commit"),
             }
         )
     return rows

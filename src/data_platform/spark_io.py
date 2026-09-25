@@ -921,6 +921,7 @@ def write_gold_manifest_rows(
     sample_seed: int,
     split_seed: int,
     preprocessing_version: str,
+    git_commit: str,
 ) -> None:
     """Filter silver.image_inventory (dataset_key, non-null label_column) down to only
     the groups selected in split_by_group, attach each row's split, compute
@@ -950,7 +951,14 @@ def write_gold_manifest_rows(
     "originally created." gold.manifest_registry (a view over this table) surfaces
     it as the manifest's creation time for display purposes; it isn't a strict
     immutable-creation guarantee.
+
+    git_commit is the commit of the code writing this release (from
+    data_platform.provenance.resolve_git_commit), so a release can be traced back to the
+    sampling and splitting code that produced it. Required: an empty value raises.
     """
+    if not git_commit:
+        raise ValueError("git_commit is required -- resolve it with data_platform.provenance.resolve_git_commit")
+
     split_rows = [{"group_id": group_id, "split": split} for group_id, split in split_by_group.items()]
     split_df = spark.createDataFrame(split_rows, schema="group_id STRING, split STRING")
 
@@ -976,6 +984,7 @@ def write_gold_manifest_rows(
             F.sha2(F.concat_ws("|", "dataset_key", "image_id", "label", "split", "source_checksum"), 256),
         )
         .withColumn("created_at", F.current_timestamp())
+        .withColumn("git_commit", F.lit(git_commit))
     )
 
     merge_into(spark, manifest_df, gold_tables["manifest_rows"], ["dataset_version", "dataset_key", "image_id"])
@@ -1180,6 +1189,14 @@ def remove_expired_exports(dbutils, gold_root: str, max_age_days: int) -> list[s
 # ============================================================================
 
 
+# Explicit so a batch where every git_commit is null (runs logged before commits were
+# required) still has a known type instead of failing schema inference.
+TRAINING_RUN_REGISTRY_ROW_SCHEMA = (
+    "mlflow_run_id STRING, training_run_name STRING, dataset_version STRING, "
+    "preprocessing_version STRING, mlflow_experiment_id STRING, git_commit STRING"
+)
+
+
 def write_training_run_registry_rows(spark, gold_tables: dict, rows: list[dict]) -> int:
     """MERGE INTO gold.training_run_registry, keyed on mlflow_run_id — already globally
     unique per actual MLflow run, unlike manifest_rows' (dataset_version, dataset_key,
@@ -1187,7 +1204,7 @@ def write_training_run_registry_rows(spark, gold_tables: dict, rows: list[dict])
 
     `rows` is ml.registry_sync.list_training_run_rows's output: dicts with
     mlflow_run_id/training_run_name/dataset_version/preprocessing_version/
-    mlflow_experiment_id. created_at is stamped here (current_timestamp), not carried
+    mlflow_experiment_id/git_commit. created_at is stamped here (current_timestamp), not carried
     from MLflow's own run-start time — same convention as manifest_rows.created_at and
     silver.image_inventory.validated_at. Returns len(rows); a no-op (returns 0) if
     rows is empty, rather than erroring on an empty write.
@@ -1195,6 +1212,8 @@ def write_training_run_registry_rows(spark, gold_tables: dict, rows: list[dict])
     if not rows:
         return 0
 
-    registry_df = spark.createDataFrame(rows).withColumn("created_at", F.current_timestamp())
+    registry_df = spark.createDataFrame(rows, schema=TRAINING_RUN_REGISTRY_ROW_SCHEMA).withColumn(
+        "created_at", F.current_timestamp()
+    )
     merge_into(spark, registry_df, gold_tables["training_run_registry"], ["mlflow_run_id"])
     return len(rows)
