@@ -1,15 +1,27 @@
-# 003. Silver label columns, not a map column or per-dataset tables
+# 003. Store labels as named columns on one shared Silver table
 
-Status: accepted
+Status: accepted.
 
-`silver.image_inventory` needs a canonical label per image, but different datasets will need different label axes (ISIC 2019 needs malignancy and specific diagnosis; a future dataset might need severity or body site). Three alternatives were considered.
+## Summary
 
-A single fixed-granularity string (always the coarsest available value) throws away information a later Gold product might want. The deepest-available value in one string mixes granularities row to row and confuses any consumer reading the column directly.
+Each label axis, such as `malignancy` or `specific_diagnosis`, is a real, commented column on the shared `silver.image_inventory` table. A dataset that needs a new axis adds a nullable column. This keeps labels visible in Unity Catalog's explorer and `information_schema`, at the cost of the table's schema growing as datasets are added.
 
-A `MAP<STRING, STRING>` column avoids a schema change per dataset, but it defeats Unity Catalog's native discoverability: Catalog Explorer, column comments, and `information_schema` all describe real columns, not the keys inside a map value. A map shows up as one opaque column with no way to see what is inside without already knowing to look, or reading external docs that can drift out of sync.
+## Context
 
-A labels table per dataset keeps real, discoverable columns, but creates table proliferation, and the natural fix — a hand-built registry table listing datasets and their label columns — would just duplicate what Unity Catalog's own metastore already provides for free, and would need to be kept in sync by hand.
+Every image needs labels, but datasets don't all label the same things. ISIC 2019 and MILK10k both give malignancy and a specific diagnosis; a future dataset might add severity or body site. The storage has to handle that without losing information or hiding it.
 
-Silver validation therefore stores label axes as real, named, commented columns directly on the single shared `silver.image_inventory` table (`malignancy`, `specific_diagnosis` for ISIC 2019), and grows that schema with `ALTER TABLE ... ADD COLUMNS` when a future dataset needs an axis this one does not have. New columns are nullable for every dataset that does not populate them; this is a Delta metadata-only operation, not a rewrite.
+## Decision
 
-Column growth is not expected to be a real problem even at a much larger number of datasets: labeling schemes converge onto a small, shared vocabulary in practice, so most future datasets populate existing columns rather than adding new ones, and even a pessimistic case of many genuinely unique axes stays well within what Delta/Parquet handle without strain.
+- Label axes are named, commented columns on `silver.image_inventory`.
+- A new axis is added with `ALTER TABLE ... ADD COLUMNS`. That's a metadata-only change in Delta, and the new column is null for datasets that don't populate it.
+- Only axes meant to be compared across datasets get an enforced vocabulary. Today that's `malignancy` (`benign`, `malignant`, `indeterminate`).
+
+## Alternatives considered
+
+- **One label string per image.** Using the coarsest value throws away detail, and using the most specific value mixes granularities from row to row.
+- **A `MAP<STRING, STRING>` column.** No schema changes are needed, but Unity Catalog shows the map as one opaque column, so nobody can see which labels exist without reading separate docs.
+- **One label table per dataset.** The columns stay visible, but the tables multiply, and finding them needs a hand-maintained registry that duplicates what the metastore already provides.
+
+## Consequences
+
+- The table gains columns as new label axes appear. In practice, labeling schemes converge on a small shared vocabulary, so most new datasets reuse existing columns. Even many unique axes are well within what Delta handles.

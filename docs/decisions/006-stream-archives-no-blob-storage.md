@@ -1,82 +1,32 @@
-# 006. Stream archives directly — no image-blob storage at any layer
+# 006. Stream images from the source archives; store image bytes nowhere else
 
-Status: accepted (retention framing below amended by [009](009-gold-shard-retention-undecided.md))
+Status: accepted. Supersedes [002](002-store-bronze-images-as-delta-blobs.md). The retention point is amended by [009](009-gold-shard-retention-undecided.md).
 
-Supersedes [002](002-store-bronze-images-as-delta-blobs.md).
+## Summary
+
+Image bytes were stored twice: once in the original source archives and again in a Bronze Delta table. Now the archives are the only permanent copy. Every step that needs pixels (Silver validation and Gold shard export) streams them straight from the archive, and the tables hold only checksums and a pointer into the archive. The trade-off is that each of those steps re-reads the archives when it runs.
 
 ## Context
 
-ADR 002 fixed a real, measured cost problem — extracting one Volume object per image cost
-roughly $17 and 90 minutes for ~33k ISIC 2019 images, because on cloud object storage operation
-count dominates cost, not byte volume (the README's "Lessons learned" section). Its fix was to stage each
-archive locally and write image bytes as rows into a Bronze Delta table
-(`bronze.<dataset>_image_blobs`) instead.
+The first Bronze design extracted every image into a Unity Catalog Volume as its own file. For about 33,000 ISIC 2019 images that took 90 minutes and cost roughly $17 per run, because cloud storage charges per operation, not per byte. [ADR 002](002-store-bronze-images-as-delta-blobs.md) fixed that by staging each archive on local disk and writing the image bytes into a Bronze Delta table instead.
 
-That fix was correct for the problem it solved, but it left a second, smaller inefficiency in
-place: image bytes now exist in two places — the original source archives (landing Volume,
-immutable, checksummable) and the Bronze blob table (a second, growing copy of the same bytes).
-Silver's `validate_images` then joined that blob table to decode/validate images, and any
-eventual Gold export would have had to join it a third time. None of this data actually needs a
-second home: the archives are already the durable, checksummed source of truth, and every layer
-that ever needs bytes (Silver validation, Gold shard export) can stream them directly from the
-archive instead.
+That solved the cost problem but left the bytes in two places: the archives in the landing Volume and the Bronze table. Silver then joined that table to validate images, and Gold would have needed it again for export. The second copy wasn't buying anything. The archives are already durable, never modified, and checksummed at ingestion ([ADR 008](008-immutable-source-archives-checksum-verified.md)).
 
 ## Decision
 
-- **Bronze never stores image bytes.** `bronze.<dataset>_image_blobs` is replaced by
-  `bronze.<dataset>_image_index` — the identical row shape minus the `image_bytes` column
-  (`image_id`, `source_split`, `archive_member_path`, `source_archive_uri`, `byte_length`,
-  `source_checksum`). Bronze ingestion still streams every archive once to compute each image's
-  checksum/byte_length, it just never retains the bytes past that computation
-  (`write_image_index_table`, `data_platform.files.iter_archive_image_rows`).
-- **Silver never stores or joins image bytes.** `validate_images` streams each label-valid
-  candidate's bytes directly from its (locally staged) source archive, decodes/validates via the
-  unchanged `data_platform.validate.decode_image`/`decode_batch`, and discards the bytes
-  immediately after. No Bronze blob table is joined, because none exists.
-- **`bronze_uri` is repointed at the archive, not a table row.** It used to be a synthetic,
-  unparseable `table:<table>/<split>/<image_id>` debug string. It's now
-  `archive:<source_archive_uri>#<archive_member_path>` — a real, resolvable pointer
-  (`data_platform.files.parse_bronze_uri` is its inverse) — since it's now the *only* way any
-  downstream layer can relocate an image's bytes. `gold.manifest_rows.bronze_uri` alone is
-  enough to find an image's bytes at Gold export time, no extra join back to Bronze needed.
-- **Gold's last step packs an already-published manifest's images into ephemeral MosaicML
-  shards**, not a permanent table or file. `notebooks/31_export_gold_shards.ipynb` streams each
-  split's sampled images out of their source archives (parsing `bronze_uri`) and writes them via
-  `streaming.MDSWriter` into `gold/<dataset_version>/shards/<split>/`. Because a shard set is
-  built from an already-split manifest, split assignment always happens before sharding, never
-  after — consistent with how `gold.manifest_rows.split` already worked before this change.
-- **Shards are a fully rebuildable, derived cache, not a permanent second source of truth.**
-  Rerunning the export notebook for the same `dataset_version` always fully rewrites every
-  split's shard directory (`MDSWriter(..., exist_ok=True)`) — no incremental-sync or
-  content-hash-diffing machinery, because a shard set can always be regenerated identically from
-  the manifest and source archives.
-  > **Amended by [ADR 009](009-gold-shard-retention-undecided.md):** the rest of this bullet, as
-  > originally written, additionally claimed shards *should* be short-lived and actively deleted
-  > (a `retention_days` config field, an intended cloud-storage lifecycle policy). That specific
-  > claim is retracted — retention is an open question, not decided either way. See ADR 009.
-- **Images are never individually extracted to a Volume, at any layer, for any reason.** This was
-  already true for Bronze under ADR 002; this ADR extends the same rule to Silver and Gold. The
-  only files this project ever writes per image are the (few, large, bounded) MDS shard files —
-  never a JPEG-per-object write anywhere.
+- **No layer stores image bytes.** The Bronze blob table becomes an image index: the same rows without the bytes, just checksum, size and location in the archive. Bronze still reads each archive once to compute checksums, then discards the bytes.
+- **Every image has a resolvable pointer.** `bronze_uri` has the form `archive:<archive path>#<path inside the zip>`, which is enough for any later step to find the image's bytes without going back to Bronze.
+- **Silver validates by streaming.** Each candidate image is read from the staged archive, decoded, checked and discarded.
+- **Gold's shard export is the one place bytes are written again.** It streams a published manifest's images into MosaicML shards for training. Shards are a derived cache that can always be rebuilt identically from the manifest and archives, so rerunning the export simply rewrites them.
+- **No image is ever written to a Volume as an individual file**, at any layer.
+
+## Alternatives considered
+
+- **Keep the Bronze blob table (ADR 002).** It works, but duplicates every image and makes Silver and Gold depend on a large, growing table.
+- **Extract images to individual files.** This was the original design, and it's what caused the per-operation cost.
 
 ## Consequences
 
-- Removing the Bronze blob table is a real migration, not just new code: ISIC 2019's Bronze and
-  Silver had already been run once against real data under the old design (32,413 accepted,
-  1,156 rejected, 16,800 leakage-control groups). Adopting this ADR
-  means rerunning both under the new streaming code and dropping the old blob table. The rerun
-  doubles as a regression check: label normalization and validation logic didn't change, only
-  how bytes are sourced, so the new counts should match the old ones exactly.
-- Silver validation now streams archives directly (driver-side, the same access pattern Bronze
-  ingestion already uses and has already proven on real Databricks serverless compute) instead of
-  a Spark-native join + `mapInPandas`. `data_platform.validate.decode_image`/`decode_batch`
-  themselves needed zero changes — only the orchestration around them did.
-- A Gold shard export is a real, if bounded, compute cost every time it runs (it re-streams the
-  relevant archives), traded against never having to touch the earlier Bronze blob table's
-  eventual write-amplification/`MERGE INTO` cost concerns at all, since that table no longer
-  exists.
-- `mosaicml-streaming` is a new dependency, and its `torch`/`torchvision`/`transformers`/cloud-SDK
-  transitive dependencies are pulled in even though no training framework or cloud-remote
-  streaming path has been chosen yet for this project — a real, heavier install footprint,
-  accepted as the cost of using the library's `MDSWriter`/`StreamingDataset` rather than a
-  hand-rolled shard format.
+- Silver validation and shard export each re-read the relevant archives when they run. That's a bounded cost, paid in exchange for never maintaining a second copy of the data.
+- Adopting this meant rerunning Bronze and Silver on the new design and dropping the old blob table. Both were rerun and verified on Databricks for ISIC 2019 and MILK10k.
+- Shard export depends on `mosaicml-streaming`, which brings in a heavy dependency tree (`torch`, `torchvision`, cloud SDKs). That's accepted in exchange for not writing a custom shard format.

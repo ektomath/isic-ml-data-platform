@@ -11,7 +11,7 @@ If you only read two, read 006 and 010.
 | [003](003-silver-label-columns-not-map.md) | Labels are named columns on one shared Silver table | Accepted |
 | [004](004-cross-dataset-leakage-not-checked.md) | Patient/lesion overlap between datasets isn't checked; exact duplicate images are | Accepted |
 | [006](006-stream-archives-no-blob-storage.md) | Stream images from the source archives; store image bytes nowhere else | Accepted |
-| [007](007-defer-disk-writes-until-unavoidable.md) | Defer writing to disk until it's unavoidable | Accepted |
+| [007](007-defer-disk-writes-until-unavoidable.md) | Don't persist a copy of data until it's unavoidable | Accepted |
 | [008](008-immutable-source-archives-checksum-verified.md) | Source archives are immutable, and every layer re-verifies checksums | Accepted |
 | [009](009-gold-shard-retention-undecided.md) | How long Gold shard exports are kept is deliberately undecided | Accepted |
 | [010](010-pin-data-and-preprocessing-per-training-run.md) | Each training run pins one dataset version and one preprocessing version | Accepted |

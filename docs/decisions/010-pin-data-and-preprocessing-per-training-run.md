@@ -1,87 +1,30 @@
-# 010. Pin dataset + preprocessing identity per training run
+# 010. Pin the dataset and preprocessing for every training run
 
-Status: accepted; implemented by [ADR 011](011-baseline-training-framework-and-registry-sync.md)
+Status: accepted. Implemented by [ADR 011](011-baseline-training-framework-and-registry-sync.md).
+
+## Summary
+
+Because preprocessing is applied at training time ([ADR 001](001-preprocessing-at-runtime.md)), the stored data can't say which preprocessing a model used. Each training run is therefore defined by one config file that pairs exactly one `dataset_version` with one `preprocessing_version`, and training accepts nothing else. Every run logs that pairing to MLflow, and a registry table is synced from MLflow. A model's metrics can always be traced to the exact images and preprocessing behind them, without relying on anyone remembering to log it.
 
 ## Context
 
-[ADR 001](001-preprocessing-at-runtime.md) already decided that preprocessing happens at training
-time, not baked into stored bytes — `write_gold_shards_for_splits` writes raw archive bytes only,
-with no decode/resize/normalize step. That's the right call for avoiding storage duplication (one
-Gold shard export per `dataset_version` serves every `preprocessing_version` anyone tries against
-it, not one export per combination), but it opens a gap: nothing about a Gold shard export, or
-`gold.manifest_rows`, records which `preprocessing_version` a *specific trained model* actually
-used. `manifest_rows.preprocessing_version` reflects whatever was the default when the manifest
-was published — not a binding fact about any one training run, once preprocessing is freely
-swappable at load time.
-
-Several ways to close that gap were considered:
-
-- Bake preprocessing back into the shard export path (e.g.
-  `gold/<dataset_version>/<preprocessing_version>/shards/`) — rejected, since it reintroduces the
-  exact storage duplication ADR 001 avoids.
-- Rely on training code discipline alone (just remember to log both values) — rejected as
-  unenforced; nothing stops a mismatched or missing log entry.
-- A content hash over `(dataset_version, preprocessing_version, resolved preprocessing config)`
-  logged as the model's sole identity — real extra rigor, but more moving parts than justified
-  before there's even one real training run to validate the design against. Worth revisiting if
-  the lighter design below ever proves insufficient.
-
-The chosen combination (below) reuses two patterns already established elsewhere in this project
-— a versioned config file per distinct thing (`config/bronze/datasets/`, `config/gold/manifests/`,
-`config/gold/exports/`), and an audit-trail table populated per run (`bronze.ingestion_runs`,
-`gold.manifest_registry`) — rather than introducing a new mechanism.
+One Gold shard export serves any number of preprocessing experiments, which avoids duplicate storage. But then nothing in the export or the manifest records what a specific model was trained with. The manifest's `preprocessing_version` is only the default at publish time.
 
 ## Decision
 
-1. **`config/gold/training_runs/<name>.yaml`** pins exactly one `dataset_version` to exactly one
-   `preprocessing_version` — same convention as `manifests/<name>.yaml` and `exports/<name>.yaml`.
-   The training entrypoint accepts only this one name, never two free-standing
-   `dataset_version`/`preprocessing_version` parameters, so there is no code path to train against
-   an unpinned pairing.
-2. **`gold.training_run_registry`** records provenance per actual training run
-   (`dataset_version`, `preprocessing_version`, an MLflow `run_id`, `created_at`) — the same
-   audit-trail pattern as `bronze.ingestion_runs`/`gold.manifest_registry`.
-3. **MLflow is the bridge, not written to directly from local code.** MLflow's tracking server is
-   the one built into the Databricks workspace (no separate product/cost — see below); it's
-   reachable from a local machine via its plain REST client
-   (`mlflow.set_tracking_uri("databricks")` + a personal access token), with no Spark or
-   Databricks Connect session required just to log a run. Every training run — local or on a
-   Databricks cluster — logs hyperparameters, metrics, model artifacts, and the training-run
-   config's name (or `dataset_version`/`preprocessing_version` directly) as MLflow run
-   tags/params. `gold.training_run_registry` gets populated *from* MLflow runs (e.g. a small sync
-   step, run wherever a live Spark session already exists), rather than written to directly by
-   local training code — so a local run never needs its own Spark session just to log one audit
-   row.
-4. **MLflow's scope stays "what happened during training," not "what data was used."** Data/
-   preprocessing identity is owned entirely by (1) and (2) above; MLflow owns hyperparameters,
-   metrics, model artifacts, and model versioning — genuinely different concerns, not duplicated
-   across both systems. Logging costs are ordinary compute-hours plus artifact storage (normal
-   Blob storage rates) — nothing like the per-object Volume-write cost trap in
-   the README's "Lessons learned" section.
-5. **A new `dataset_version`/Gold shard export is for a new image selection, not a new
-   `preprocessing_version`.** `write_gold_shards_for_splits` writes raw archive bytes only —
-   nothing about Gold shard export applies preprocessing today, or ever will under ADR 001. Two
-   `dataset_version`s that share a `sample_seed` (deliberately supported so their image pools are
-   provably identical — see `docs/data_contract.md`) but differ only in `preprocessing_version` is
-   cheap at the manifest level (metadata rows only), but exporting shards for **both** produces two
-   byte-for-byte identical shard sets — real storage duplication for a distinction the export
-   pipeline can't act on. `preprocessing_version` on a manifest row is documentation (the
-   training-run config is what's binding), not something to fork a Gold release over; only fork `dataset_version` when
-   the actual image selection changes.
+1. **A training-run config pins the pairing.** `config/gold/training_runs/<name>.yaml` names one `dataset_version` and one `preprocessing_version`, plus the hyperparameters. Training takes only this config's name, never two separate values, so there's no way to train on an unpinned combination. This follows the project's existing pattern of one versioned config file per thing.
+2. **MLflow records what happened.** Every run, local or on Databricks, logs hyperparameters, metrics, the model and the pairing to the MLflow server built into the Databricks workspace. A local machine reaches it over REST with a personal access token, and needs no Spark session.
+3. **A registry table is synced from MLflow.** `gold.training_run_registry` gets one row per run, filled from MLflow on demand from a notebook that already has Spark. Training code never writes to it directly. This mirrors `bronze.ingestion_runs`.
+4. **A new Gold release is for a new image selection only.** Shards hold unprocessed bytes, so two releases that differ only in `preprocessing_version` would export identical shards. A new preprocessing experiment is a new training-run config, not a new release.
+
+## Alternatives considered
+
+- **Bake preprocessing into the shard path**, with one export per preprocessing version. This brings back the duplicate storage ADR 001 avoids.
+- **Rely on training code to log both values.** Nothing would enforce it.
+- **Hash the dataset, preprocessing and resolved config into one model identity.** It's more rigorous, but has more moving parts than a single baseline model justifies. Worth revisiting if the simpler design falls short.
 
 ## Consequences
 
-- **Deliberately not implemented at the time this ADR was written** — no `config/gold/training_runs/`
-  directory and no `gold.training_run_registry` table existed yet, since building either with no
-  training script to consume them would have risked guessing at a shape real training code later
-  proves wrong — the same "don't build ahead of a real consumer" discipline already applied in
-  [ADR 009](009-gold-shard-retention-undecided.md) and [ADR 004](004-cross-dataset-leakage-not-checked.md).
-  Both were built alongside the first real training script once it existed, exactly as planned —
-  see [ADR 011](011-baseline-training-framework-and-registry-sync.md) for the concrete shapes.
-- Trying multiple preprocessing settings against the same image selection stays cheap: this design
-  changes nothing about shard storage, since ADR 001 already keeps preprocessing out of the shard
-  bytes — a new `preprocessing_version` just means a new `config/gold/training_runs/<name>.yaml`
-  entry, not a new shard export.
-- Local and Databricks training both go through the identical MLflow call path, so there's no
-  local-only or Databricks-only branch for the audit trail — the only local-specific requirement
-  is a personal access token, not a Databricks Connect setup.
+- Trying new preprocessing against the same images costs one new config file, with no new export.
+- Local and Databricks training share the same logging path. Running locally only needs an access token.
+- The registry only shows runs that have been synced, so it can lag MLflow until the sync cell runs.

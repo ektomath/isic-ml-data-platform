@@ -1,14 +1,25 @@
 # 004. Cross-dataset patient/lesion leakage is not checked (duplicate images are)
 
-Status: accepted; the checksum-based check named in the third paragraph below as "not implemented"
-is now implemented — see the note at the end of that paragraph
+Status: accepted.
 
-Leakage-control groups exist so the same patient, lesion, or exact-duplicate image never crosses a train/evaluation split — see `data_platform.spark_io.assign_leakage_groups_and_write_inventory`. Once more than one source dataset is onboarded, the same question applies across datasets: could the same real-world patient, lesion, or image appear in both ISIC 2019 and MILK10k undetected?
+## Summary
 
-Grouping is computed with `dataset_key` in scope, and `group_id` embeds `dataset_key`, so a `lesion_id`/`patient_id` collision between two datasets can never merge into one leakage group, even if the raw ID strings happen to match. This is deliberate, not an oversight: `lesion_id` and `patient_id` are identifiers issued by each dataset's own source pipeline, and nothing confirms they share a namespace across independently-published dataset releases. Treating a string match as "same patient" would be unsound — a coincidental collision would wrongly merge two unrelated images into one group, and conversely a non-match provides no assurance that two datasets are actually free of overlap. There is no reliable way to resolve this without an external, authoritative cross-dataset patient/lesion registry, which doesn't exist here.
+Leakage groups keep images of the same patient, the same lesion, or the exact same image in a single split. They're built separately for each dataset, because patient and lesion IDs issued by different sources can't be compared. Exact duplicate images across datasets are caught by checksum before a combined training release is built. The same patient appearing in two datasets under different IDs is not detected, and that's a documented limitation.
 
-`source_checksum` (the SHA-256 of the decoded image bytes) is the one exception worth naming: unlike the IDs, it's a property of the image itself, not a dataset-issued label, so an exact match across datasets *would* be a sound signal that the same image file was reused. Leakage-*grouping* itself (`assign_leakage_groups_and_write_inventory`) is still scoped per `dataset_key`, unchanged — that's a different mechanism (it decides which `group_id` an image belongs to) from checking whether the same image also exists under a *different* `dataset_key`'s groups.
+## Context
 
-**Implemented**: `data_platform.spark_io.assert_no_cross_dataset_duplicate_checksums(spark, silver_tables, dataset_keys)` — called from `notebooks/30_create_gold_manifest.ipynb` right after building each dataset's candidate leakage groups, before sampling/split assignment. A no-op for a single-dataset manifest; for a manifest spanning more than one `dataset_key` (e.g. `sample-v1`, which already combines `isic_2019` and `milk10k`), it raises if any `source_checksum` appears under more than one `dataset_key`, rather than silently letting a real duplicate land in different splits across its two copies. It only catches literal byte-identical reuse, not the same patient or lesion photographed differently — that broader gap (named in the paragraph above) still stands.
+Once a training release combines ISIC 2019 and MILK10k, the same patient, lesion or image could appear in both. If the two copies land in different splits, test results are inflated.
 
-This pipeline therefore assumes, without verifying, that its onboarded source datasets are drawn from non-overlapping patient and lesion populations. This is a limitation, not a guarantee — it's the same "patient/lesion leakage inflates results" risk already named in the original project plan, just extended across datasets instead of within one.
+## Decision
+
+- **Leakage grouping stays per dataset.** `group_id` includes the dataset key, so matching ID strings from two datasets never merge into one group. Each source issues its own `patient_id` and `lesion_id`, and nothing shows they share a namespace. A coincidental match would wrongly join unrelated images, and a non-match proves nothing.
+- **Exact duplicates are checked across datasets.** A checksum is a property of the image itself, not a label a dataset assigns, so a match is a sound signal. Before sampling, the Gold manifest notebook calls `assert_no_cross_dataset_duplicate_checksums`, which fails the run if any image checksum appears in more than one of the release's datasets.
+
+## Alternatives considered
+
+- **Merge groups on matching IDs across datasets.** Rejected as unsound, for the reason above.
+- **Detect the same patient or lesion across datasets.** This would need an authoritative cross-dataset patient registry or near-duplicate image matching, and neither exists here.
+
+## Consequences
+
+- The pipeline assumes, without verifying, that onboarded datasets don't share patients or lesions. The same lesion photographed twice, or the same image re-encoded so its bytes differ, isn't caught.

@@ -35,8 +35,8 @@ _REQUIRED_FIELD_SPEC_KEYS_BY_KIND = {
 
 
 # Optional per-field keys, present only for a field that needs cross-dataset reconciliation
-# (docs/decisions/012-pin-metadata-feature-config-per-training-run.md's cross-dataset
-# addendum): a release combining more than one dataset_key whose raw column names and/or raw
+# (docs/decisions/012-pin-metadata-feature-config-per-training-run.md's Decision section
+# on reconciling datasets): a release combining more than one dataset_key whose raw column names and/or raw
 # values for the "same" conceptual field don't already agree. Both are keyed by dataset_key,
 # and both are no-ops for a dataset_key not listed in them -- a single-dataset config (or a
 # field that happens to line up across every dataset in the release) never needs either.
@@ -108,7 +108,7 @@ def _encode_categorical(raw_value, category_to_index: dict[str, int], vocabulary
 def _resolve_raw_value(field: dict, raw_row: dict, dataset_key) -> object:
     """Look up field's value on raw_row, reconciling cross-dataset column-name/value
     differences first (docs/decisions/012-pin-metadata-feature-config-per-training-run.md's
-    cross-dataset addendum). `source_columns.get(dataset_key, field["name"])` falls back to the
+    Decision section). `source_columns.get(dataset_key, field["name"])` falls back to the
     canonical name when this dataset_key isn't listed (including when raw_row carries no
     "dataset_key" at all, e.g. a single-dataset config/export, matching dataset_key=None to
     nothing) -- so a field with no reconciliation needed behaves exactly as it did before this

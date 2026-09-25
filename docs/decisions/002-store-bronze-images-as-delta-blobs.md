@@ -1,19 +1,21 @@
-# 002. Store Bronze images as Delta blob rows
+# 002. Store Bronze image bytes as Delta table rows
 
-Status: superseded by [006](006-stream-archives-no-blob-storage.md) — storing image bytes at
-all, even as Delta rows instead of one Volume object per image, turned out to be unneeded
-duplication of data the source archives already hold safely and checksummably. The per-object
-cost lesson this ADR captures is still correct and still the reason Bronze/Silver/Gold never
-write one file per image; only the "store bytes in a Delta table" half of the fix was replaced.
+Status: superseded by [006](006-stream-archives-no-blob-storage.md).
 
-The ISIC 2019 source archives contain tens of thousands of images. Extracting every archive member directly into a Unity Catalog Volume creates one cloud object per JPEG and turns ingestion into many small storage operations.
+## Summary
 
-Bronze ingestion therefore stages each zip archive once from the landing Volume to local cluster disk, reads archive members locally, computes checksums locally, and writes the image bytes directly to `bronze.isic_2019_image_blobs` in bounded batches: the first batch overwrites the table, every batch after that appends. Metadata remains small and is copied separately for traceability.
+The first Bronze design wrote every image into a Unity Catalog Volume as its own file, and a single ingestion run took 90 minutes and cost about $17. This decision replaced that with staging each archive on local disk and writing the image bytes into a Bronze Delta table in batches. It fixed the cost, but kept a second copy of every image. [ADR 006](006-stream-archives-no-blob-storage.md) later removed that copy too.
 
-The batch size is capped so Spark Connect does not embed a multi-gigabyte local relation in one query plan. This creates a small number of Delta writes while still avoiding one Volume object write per image.
+## Context
 
-This is a direct write, not a stage-then-atomically-replace pattern — there is no separate staging table and no all-or-nothing swap. If a batch fails partway through a run, `bronze.isic_2019_image_blobs` is left holding whatever batches from *this* run already succeeded, not the previous run's data (the first batch already overwrote that) and not a complete new dataset either. Recovery is to simply rerun the ingestion cell from the top: its first batch always overwrites again, so a full rerun cleanly discards whatever partial state was left and rebuilds the table from scratch across every archive — including any archive that had already finished before the failure, not just the one that failed.
+ISIC 2019 has about 33,000 images. On cloud object storage, the number of operations drives cost more than the number of bytes, so one write per image was the expensive part.
 
-This tradeoff was accepted deliberately rather than building a staging-table + atomic-replace pipeline, for two reasons specific to this project's current shape: archives are already staged to local disk by the time this write step runs, so a full rerun costs re-reading local disk and rewriting Delta rows, not the per-file Volume API calls that caused the original $17 ingestion cost (see the README's "Lessons learned" section); and ingestion currently runs interactively, over a small, fixed number of archives (train + test), so a mid-run failure is something the operator sees and reruns, not something that could silently reach Silver unnoticed. Revisit this if either assumption stops holding — many more archives, a scale where a full redo gets expensive, or this running unattended (e.g. a scheduled job) where a partially-written table could go unnoticed before Silver reads it.
+## Decision
 
-This keeps the source bytes in Bronze while avoiding per-image Volume writes during archive extraction. Silver and Gold should reference the Bronze image blob rows and should not duplicate image bytes.
+- Copy each archive once from the landing Volume to local disk, and read and checksum the images there.
+- Write image bytes to `bronze.isic_2019_image_blobs` in bounded batches. The first batch overwrites the table, and later batches append. The batch cap stops Spark Connect from putting gigabytes of data into a single query plan.
+- If a run fails partway, rerun it from the start. Because the first batch overwrites, a rerun rebuilds the table cleanly. A staging table with an atomic swap wasn't worth it while ingestion ran by hand over two archives.
+
+## Why it was superseded
+
+The source archives already hold every image safely and are checksummed at ingestion, so the Delta copy added storage, and a large table for Silver and Gold to depend on, without adding safety. [ADR 006](006-stream-archives-no-blob-storage.md) streams images from the archives instead. The lesson about per-operation cost still stands: no layer writes one file per image.

@@ -1,66 +1,26 @@
-# 007. Defer writing to disk until it's unavoidable
+# 007. Don't persist a copy of data until it's unavoidable
 
-Status: accepted (one claim below, about Gold shard retention specifically, amended by [009](009-gold-shard-retention-undecided.md))
+Status: accepted. The shard retention point is amended by [009](009-gold-shard-retention-undecided.md).
+
+## Summary
+
+Stream or compute data from an existing source rather than writing a new copy. When a copy is unavoidable, write it as late in the pipeline as possible and treat it as a rebuildable cache. The cost is reading the same archives more than once. This turns what Bronze, Silver and Gold each arrived at separately into a default for future work.
 
 ## Context
 
-`docs/decisions/006-stream-archives-no-blob-storage.md` made one specific call: stop storing
-image bytes in Bronze/Silver tables. Working through that redesign surfaced the same question
-repeatedly at every layer — Bronze, Silver, and Gold each independently arrived at "stream this
-from an existing source instead of writing a new copy of it," not because a rule said to, but
-because writing the copy kept turning out to be unnecessary once actually examined. That's worth
-naming as its own decision so future work defaults to asking the question, rather than each new
-pipeline stage re-deriving the same answer from scratch — or worse, defaulting to "materialize
-it, that's simpler" and only getting pulled back later.
+While designing [ADR 006](006-stream-archives-no-blob-storage.md), every layer ran into the same question and reached the same answer: the copy wasn't needed. Writing it down means the next pipeline stage starts from that question, instead of starting from a copy and justifying it afterwards.
 
 ## Decision
 
-Prefer streaming or on-demand computation over persisting a new copy of data. When persisting
-*is* unavoidable, persist as late in the pipeline as possible, and treat what's persisted as
-ephemeral and rebuildable rather than a new source of truth — unless there's a concrete, current
-reason it needs to be permanent. Never persist something because a future step *might* want it
-that way; that's the same "don't build for a hypothetical" discipline already applied elsewhere
-in this project (the deleted zero-logic per-dataset label modules, the deferred incremental
-Gold-sync tool), applied here to storage instead of code.
+Persist something new only when there's a concrete, current reason, never because a later step might want it. This already holds throughout the pipeline:
 
-This is already load-bearing in the codebase, not aspirational:
-
-- **Bronze never retains image bytes.** `write_image_index_table` streams each archive to
-  compute `byte_length`/`source_checksum` and discards the bytes immediately — it never writes
-  them anywhere, not even transiently to a scratch location (`docs/decisions/006-...md`).
-- **Silver streams instead of joining a persisted copy.** `validate_images` reads each candidate
-  image directly from its source archive, decodes it, and discards the bytes — there is no
-  Bronze byte table left to join in the first place, by construction.
-- **`materialize()` is used sparingly, not routinely** (it currently has no callers at all). It exists specifically for the case where
-  skipping it would mean redoing real work — a DataFrame that's both expensive to compute *and*
-  feeds more than one downstream action. A cheap or single-consumer DataFrame is never
-  materialized just because it's convenient. This is the same principle applied inside a single
-  notebook run, not just across pipeline stages.
-- **The landing-volume archives are the one permanent copy of image bytes.** Nothing upstream of
-  Bronze re-copies them, and nothing downstream persists a second copy until Gold shard export —
-  the latest point in the whole pipeline, and the one point where a real, external constraint
-  (a training job needs actual files, not a Spark session) makes persisting unavoidable.
-- **Even that unavoidable write is treated as a derived cache, not a new source of truth.** Gold
-  shards are fully rebuilt on every export run (`MDSWriter(..., exist_ok=True)`, no
-  incremental-sync machinery) — persisting late didn't become an excuse to treat the result as
-  authoritative. (This bullet originally also claimed shards carry a retention policy rather than
-  being kept indefinitely; that specific claim is retracted by
-  [ADR 009](009-gold-shard-retention-undecided.md) — retention is an open question, not decided.)
+- **Bronze** reads each archive to compute checksums, then discards the bytes.
+- **Silver** validates images by streaming them from the archive. There's no byte table to join.
+- **The source archives** are the only permanent copy of image bytes.
+- **Gold shard export** is the one place bytes are written again. It's the latest point in the pipeline, and a copy is needed there because training needs actual files, not a Spark session. The shards are fully rebuilt on each export.
+- **Within a notebook**, `materialize()` (write a DataFrame to a table and read it back) is only for a result that's both expensive and used more than once. It currently has no callers.
 
 ## Consequences
 
-- Adding a new pipeline stage means asking "can this be computed/streamed from an existing
-  source instead of writing a new copy" before reaching for a Volume write or a table column
-  that holds derived/duplicated bytes — not after, once the copy already exists and now has to
-  be justified or torn out.
-- This trades some repeated compute (the same archive gets streamed once each in Bronze, Silver,
-  and Gold export, rather than once ever) for avoiding storage duplication and its cost. That
-  trade only holds because archives are few, already locally staged before each pass, and
-  streaming reads are cheap compared to the per-object storage-operation cost this project has
-  already been burned by once (the README's "Lessons learned" section). If archive count or size ever grows
-  enough that repeated streaming itself becomes the bottleneck, that's a reason to revisit this
-  specific trade — not a reason to abandon the general principle.
-- A future stage that does need to persist something should be able to point at a concrete,
-  current reason (an external consumer that genuinely needs a file, not a Spark session; a
-  DataFrame proven to feed multiple downstream actions) — "it might be useful later" doesn't
-  qualify, same bar as everywhere else in this project.
+- A new stage should first ask whether it can read from an existing source before writing anything new.
+- Each archive is read once each in Bronze, Silver and Gold export, rather than once overall. That's cheap while archives are few and staged on local disk. If repeated reading ever becomes the bottleneck, revisit that trade-off, not the principle.
