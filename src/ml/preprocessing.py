@@ -44,7 +44,7 @@ def require_fields(config: dict, required_fields: tuple[str, ...], context: str)
 
 def load_preprocessing_config(config_root: str | Path, preprocessing_version: str) -> dict:
     """Load config/preprocessing/<preprocessing_version>.yaml and validate it carries every
-    field the gold.preprocessing.yaml contract requires (docs/data_contract.md)."""
+    field the config/preprocessing/<name>.yaml contract requires (docs/data_contract.md)."""
     path = Path(config_root) / "preprocessing" / f"{preprocessing_version}.yaml"
     config = load_yaml_config(path)
     require_fields(config, PREPROCESSING_REQUIRED_FIELDS, f"Preprocessing config {path}")

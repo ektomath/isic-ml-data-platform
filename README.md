@@ -17,7 +17,7 @@ Adding a dataset takes a config file, its own Bronze notebooks for the parts tha
 | Bronze (ingest and index) | ✅ Run and verified on Databricks for both datasets |
 | Silver (validate and normalize) | ✅ Run and verified on Databricks for both datasets |
 | Gold (manifest and training shards) | ✅ `sample-v1` manifest and shards built on Databricks |
-| Baseline training | 🟨 Written and smoke-tested locally on tiny fixture shards; not yet run on real shards |
+| Baseline training | 🟨 Written and smoke-tested locally on tiny fixture shards; never run on Databricks or on the real shards |
 
 What's next: a first real training run on the `sample-v1` shards, a full-scale Gold release instead of the 200-image sample, and scheduled orchestration (Databricks Jobs) in place of running the notebooks by hand.
 

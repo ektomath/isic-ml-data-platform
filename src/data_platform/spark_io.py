@@ -26,10 +26,9 @@ Never call `.cache()`/`.persist()`/`.unpersist()` anywhere in this module (or in
 any notebook cell). Databricks serverless compute does not support them —
 `DataFrame.cache()` triggers `[NOT_SUPPORTED_WITH_SERVERLESS] PERSIST TABLE is
 not supported on serverless compute`, so it fails at runtime rather than just
-being a missed optimization. Where a DataFrame is genuinely expensive (image
-bytes, a `mapInPandas` decode) and feeds more than one downstream action, use
-`materialize()` below instead — a real write-then-read round trip through a
-scratch Delta table, which is supported everywhere including serverless.
+being a missed optimization. If a DataFrame is genuinely expensive and feeds
+more than one downstream action, write it to a scratch Delta table and read it
+back instead, which works everywhere including serverless.
 """
 
 from __future__ import annotations
@@ -113,16 +112,6 @@ def _scratch_table(silver_tables: dict, name: str) -> str:
     Overwritten on every run, so nothing here is meant to persist between runs."""
     schema = silver_tables["image_inventory"].rsplit(".", 1)[0]
     return f"{schema}._scratch_{name}"
-
-
-def materialize(spark, df, table_name: str):
-    """Write df to table_name and read it back — the serverless-safe substitute for
-    .cache()/.persist() (see this module's docstring). Use this only for a
-    DataFrame that's both expensive to compute and consumed by more than one
-    downstream action; a cheap or single-consumer DataFrame doesn't need it.
-    """
-    df.write.mode("overwrite").option("overwriteSchema", "true").saveAsTable(table_name)
-    return spark.table(table_name)
 
 
 def reject_rows(
@@ -479,8 +468,8 @@ def apply_label_normalization(
     never checked — this guards only the label axes meant to be cross-dataset
     comparable (see docs/decisions/003-silver-label-columns-not-map.md).
 
-    Checked on labeled_df (metadata only, before any image-byte join or
-    materialize()), so it's cheap. A value outside the vocabulary means
+    Checked on labeled_df (metadata only, before any image bytes are read), so
+    it's cheap. A value outside the vocabulary means
     normalize_fn itself has a bug — every row with that underlying source value
     would fail identically, it isn't per-row data variance — so this raises and
     fails the run rather than rejecting individual rows the way the
@@ -844,8 +833,7 @@ def build_gold_candidate_groups(spark, silver_tables: dict, dataset_key: str, la
     same discipline applied to sampling/splitting).
 
     Metadata-only aggregation over the full accepted table for dataset_key (no image
-    bytes, no materialize() needed — this is a cheap groupBy, not a byte-heavy join or
-    a mapInPandas pass), then collected to the driver: one small row per *group*, not
+    bytes — a cheap groupBy), then collected to the driver: one small row per *group*, not
     per image, so this stays cheap even at tens of thousands of source rows. Returns a
     plain list of dicts so data_platform.sampling's logic never needs Spark.
     """

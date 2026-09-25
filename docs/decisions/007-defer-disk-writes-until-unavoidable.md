@@ -18,7 +18,6 @@ Persist something new only when there's a concrete, current reason, never becaus
 - **Silver** validates images by streaming them from the archive. There's no byte table to join.
 - **The source archives** are the only permanent copy of image bytes.
 - **Gold shard export** is the one place bytes are written again. It's the latest point in the pipeline, and a copy is needed there because training needs actual files, not a Spark session. The shards are fully rebuilt on each export.
-- **Within a notebook**, `materialize()` (write a DataFrame to a table and read it back) is only for a result that's both expensive and used more than once. It currently has no callers.
 
 ## Consequences
 

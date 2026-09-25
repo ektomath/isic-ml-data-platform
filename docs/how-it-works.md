@@ -13,7 +13,7 @@ The goal the whole design serves:
 | Bronze ingestion | Built, and run end to end on Databricks for both datasets (ISIC 2019 and MILK10k) |
 | Silver validation | Built, and run end to end on Databricks serverless for both datasets |
 | Gold manifest and shard export | Built, and run on Databricks for the small `sample-v1` release, producing its training shards |
-| Baseline training | Built and unit-tested, including an end-to-end smoke test that trains on tiny real shards and logs to a local MLflow store; not yet run against the real shards |
+| Baseline training | Built and unit-tested, including an end-to-end smoke test that trains on tiny real shards and logs to a local MLflow store; never run on Databricks or against the real shards |
 
 ## The problem
 
