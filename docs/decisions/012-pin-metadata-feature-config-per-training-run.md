@@ -43,7 +43,8 @@ metadata feature engineering:
    field, resolved by `ml.training_run.resolve_training_run` alongside `preprocessing_version`.
    Optional because most training runs (the current baseline ResNet-18 classifier) are
    image-only; a multimodal training run pins it the same way `preprocessing_version` is already
-   pinned, so its MLflow-logged provenance is complete.
+   pinned. It is resolved today but not yet logged to MLflow or `gold.training_run_registry`,
+   since no training script consumes it yet; logging it is part of adding a multimodal run.
 
 ## Consequences
 

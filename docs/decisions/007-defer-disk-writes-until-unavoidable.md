@@ -31,7 +31,7 @@ This is already load-bearing in the codebase, not aspirational:
 - **Silver streams instead of joining a persisted copy.** `validate_images` reads each candidate
   image directly from its source archive, decodes it, and discards the bytes — there is no
   Bronze byte table left to join in the first place, by construction.
-- **`materialize()` is used sparingly, not routinely.** It exists specifically for the case where
+- **`materialize()` is used sparingly, not routinely** (it currently has no callers at all). It exists specifically for the case where
   skipping it would mean redoing real work — a DataFrame that's both expensive to compute *and*
   feeds more than one downstream action. A cheap or single-consumer DataFrame is never
   materialized just because it's convenient. This is the same principle applied inside a single
@@ -57,7 +57,7 @@ This is already load-bearing in the codebase, not aspirational:
   and Gold export, rather than once ever) for avoiding storage duplication and its cost. That
   trade only holds because archives are few, already locally staged before each pass, and
   streaming reads are cheap compared to the per-object storage-operation cost this project has
-  already been burned by once (`docs/lessons-learned.md`). If archive count or size ever grows
+  already been burned by once (the README's "Lessons learned" section). If archive count or size ever grows
   enough that repeated streaming itself becomes the bottleneck, that's a reason to revisit this
   specific trade — not a reason to abandon the general principle.
 - A future stage that does need to persist something should be able to point at a concrete,

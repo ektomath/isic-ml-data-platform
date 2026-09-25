@@ -2,7 +2,7 @@
 
 Per-dataset image validation criteria used by `data_platform.validate.decode_image`/`decode_batch` via `data_platform.spark_io.validate_images`. Defaults live in `data_platform/validate.py`; a dataset only needs an entry here if its images are a structurally different kind of thing and it overrides them.
 
-A living reference, not a point-in-time decision record — update it whenever a dataset's criteria change. See `AGENT.md`'s "Silver contract" section for *why* validation criteria are allowed to differ by dataset at all.
+A living reference, not a point-in-time decision record — update it whenever a dataset's criteria change. Criteria are allowed to differ by dataset because source datasets differ structurally (for example, in image size ranges); defaults live in `data_platform/validate.py`.
 
 ## Defaults (`data_platform/validate.py`)
 
@@ -16,7 +16,7 @@ A living reference, not a point-in-time decision record — update it whenever a
 Uses the defaults above, unmodified.
 
 - **Rationale**: sanity guard-rails for close-up dermoscopy photography, not derived from a measured percentile of the real dimension distribution. Reasonable for macro clinical/dermoscopic photos; would need reconsidering for a structurally different domain — whole-slide histopathology scans, for example, routinely exceed 15,000px as completely normal, not corrupted, and would need a much larger (or no) `max_dimension`.
-- A near-uniform-color rejection check was tried and removed — not a reliable corruption signal here (a valid image can legitimately have low pixel variance, e.g. lots of dark background). See `AGENT.md`.
+- A near-uniform-color rejection check was tried and removed — not a reliable corruption signal here (a valid image can legitimately have low pixel variance, e.g. lots of dark background).
 
 ## `milk10k`
 

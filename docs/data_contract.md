@@ -44,7 +44,7 @@ Source metadata extracted from the ISIC release and preserved without model-spec
 
 ### `bronze.milk10k_source_metadata`
 
-Source metadata extracted from the MILK10k release, preserved without model-specific transformation. Deliberately a different shape than `bronze.isic_2019_source_metadata` (`AGENT.md`'s "Table strategy" — Bronze source tables stay dataset-specific since source schemas differ): 4 diagnosis levels and 2 anatomic-site levels instead of ISIC 2019's 5, no `patient_id`/`clin_size_long_diam_mm`/`dermoscopic_type`/`family_hx_mm`/`personal_hx_mm`, plus a MILK10k-only `image_manipulation` column. A single release with no train/test split, so `source_split` is always `all`.
+Source metadata extracted from the MILK10k release, preserved without model-specific transformation. Deliberately a different shape than `bronze.isic_2019_source_metadata` (Bronze source tables stay dataset-specific since source schemas differ): 4 diagnosis levels and 2 anatomic-site levels instead of ISIC 2019's 5, no `patient_id`/`clin_size_long_diam_mm`/`dermoscopic_type`/`family_hx_mm`/`personal_hx_mm`, plus a MILK10k-only `image_manipulation` column. A single release with no train/test split, so `source_split` is always `all`.
 
 | Field | Type | Notes |
 |---|---|---|
@@ -97,16 +97,18 @@ Run-level metadata for traceability.
 | `source_version` | string | Source release or snapshot identifier |
 | `started_at` | timestamp | Run start |
 | `finished_at` | timestamp | Run end |
-| `status` | string | `success`, `partial`, or `failed` |
-| `records_seen` | integer | Total source records processed |
+| `status` | string | Always `success` today: a failed run raises before writing a row |
+| `records_seen` | integer | Currently written equal to `records_written` (records seen before filtering aren't counted separately) |
 | `records_written` | integer | Total rows written |
 
 ## Silver contracts
 
 ### `silver.image_inventory`
 
-One row per **accepted** image after validation and normalization. A rejected image never lands
+One row per **accepted** image after validation and normalization. Within one run a rejected image never lands
 here — see `silver.rejected_records`, the only table carrying rejected rows and their reasons.
+Both tables are MERGE-upserted and never cleared, so an image whose outcome changes between runs
+can end up in both until the stale row is removed.
 
 | Field | Type | Notes |
 |---|---|---|
@@ -123,7 +125,7 @@ here — see `silver.rejected_records`, the only table carrying rejected rows an
 | `specific_diagnosis` | string or null | Most specific diagnosis value available from this dataset's source label |
 | `patient_id` | string or null | Used for leakage grouping |
 | `lesion_id` | string or null | Used for leakage grouping |
-| `group_id` | string or null | Leakage-control group |
+| `group_id` | string | Leakage-control group (always set) |
 | `validated_at` | timestamp | Validation timestamp |
 
 `MERGE INTO` is keyed on (`dataset_key`, `image_id`) together, not `image_id` alone.
@@ -246,7 +248,7 @@ classifier (`src/ml/train.py`) doesn't read it today; a model that does would jo
 `config/metadata_preprocessing/<name>.yaml` (below) rather than an ad hoc local column
 selection — see `docs/decisions/012-pin-metadata-feature-config-per-training-run.md`.
 
-### `gold.dataset_card`
+### Dataset card (deferred)
 
 The dataset card is a Markdown document stored with the Gold release.
 

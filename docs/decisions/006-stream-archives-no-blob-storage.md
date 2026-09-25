@@ -8,7 +8,7 @@ Supersedes [002](002-store-bronze-images-as-delta-blobs.md).
 
 ADR 002 fixed a real, measured cost problem — extracting one Volume object per image cost
 roughly $17 and 90 minutes for ~33k ISIC 2019 images, because on cloud object storage operation
-count dominates cost, not byte volume (`docs/lessons-learned.md`). Its fix was to stage each
+count dominates cost, not byte volume (the README's "Lessons learned" section). Its fix was to stage each
 archive locally and write image bytes as rows into a Bronze Delta table
 (`bronze.<dataset>_image_blobs`) instead.
 
@@ -63,7 +63,7 @@ archive instead.
 
 - Removing the Bronze blob table is a real migration, not just new code: ISIC 2019's Bronze and
   Silver had already been run once against real data under the old design (32,413 accepted,
-  1,156 rejected, 16,800 leakage-control groups — recorded in `AGENT.md`). Adopting this ADR
+  1,156 rejected, 16,800 leakage-control groups). Adopting this ADR
   means rerunning both under the new streaming code and dropping the old blob table. The rerun
   doubles as a regression check: label normalization and validation logic didn't change, only
   how bytes are sourced, so the new counts should match the old ones exactly.

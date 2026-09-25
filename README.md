@@ -4,11 +4,22 @@ I set out to build a central data platform that holds many dermatology image dat
 
 > A portfolio project demonstrating Azure, Databricks, and reproducible computer-vision data engineering.
 
-An Azure and Databricks-based data platform that turns raw dermatology images and metadata into validated Bronze, Silver, and Gold data products, and includes baseline classifier training code built against them (not yet run end to end, see [Development approach](#development-approach)). The goal it's built around:
+The goal it's built around:
 
 > A reviewer can trace a trained model back to an immutable Gold manifest, a validated Silver inventory, and the exact Bronze image checksums used to create it.
 
 Adding a dataset takes a config file in `config/bronze/datasets/` and a mostly-configuration Silver notebook, not new pipeline code. The current ingestion code handles archive-based sources, so a dataset delivered some other way (for example, from an API) would need its own ingestion step.
+
+## Status
+
+| Stage | State |
+|---|---|
+| Bronze (ingest and index) | ✅ Run and verified on Databricks for both datasets |
+| Silver (validate and normalize) | ✅ Run and verified on Databricks for both datasets |
+| Gold (manifest and training shards) | ✅ `sample-v1` manifest and shards built on Databricks |
+| Baseline training | 🟨 Written and smoke-tested locally on tiny fixture shards; not yet run on real shards |
+
+What's next: a first real training run on the `sample-v1` shards, a full-scale Gold release instead of the 200-image sample, and scheduled orchestration (Databricks Jobs) in place of running the notebooks by hand.
 
 ## Architecture
 
@@ -31,17 +42,20 @@ New to the project? [How it works](docs/how-it-works.md) is a 10-minute walkthro
 - **`config/`** — one versioned YAML file per dataset, Gold manifest, shard export, preprocessing recipe, and training run — never inline values in a notebook.
 - **`notebooks/`** — the numbered pipeline stages (`00` setup → `10` Bronze → `20` Silver → `30`/`31` Gold → `40` training), run manually in sequence.
 - **`tests/`** — fixture-backed checks (real tiny archives/shards/MLflow stores, no mocks) for everything that doesn't require a live Spark session.
-- **`docs/`** — architecture, data contract, an [ADR log](docs/decisions/) recording every non-obvious design decision (and why it changed), and a [project checklist](docs/project-checklist.md) tracking real status.
-- **[`AGENT.md`](AGENT.md)** — the canonical technical reference: conventions, contracts, and current working state, for a human or an AI picking this project back up.
+- **`docs/`** — the [walkthrough](docs/how-it-works.md), architecture, data contract, and an [ADR log](docs/decisions/) recording every non-obvious design decision (and why it changed).
 
 ## Key design decisions
 
 A few of the more interesting calls, out of the [full decision log](docs/decisions/):
 
-- [Stream from source archives, never store image bytes anywhere else](docs/decisions/006-stream-archives-no-blob-storage.md) — the central storage decision, after an earlier design ([superseded](docs/decisions/002-store-bronze-images-as-delta-blobs.md)) cost $17 in 90 minutes on per-object cloud writes (see [lessons learned](docs/lessons-learned.md)).
+- [Stream from source archives, never store image bytes anywhere else](docs/decisions/006-stream-archives-no-blob-storage.md) — the central storage decision, after an earlier design ([superseded](docs/decisions/002-store-bronze-images-as-delta-blobs.md)) cost $17 in 90 minutes on per-object cloud writes (see [Lessons learned](#lessons-learned)).
 - [Verify source-archive immutability by checksum, not assumption](docs/decisions/008-immutable-source-archives-checksum-verified.md) — every layer that streams bytes re-verifies them against what Bronze originally recorded.
 - [Pin exactly which data + preprocessing a training run used](docs/decisions/010-pin-data-and-preprocessing-per-training-run.md) — so a trained model's reported metrics are never just a matter of trusting training-code discipline.
 - [Retention for derived artifacts is an open question, not a default](docs/decisions/009-gold-shard-retention-undecided.md) — a deliberate retraction of an earlier, premature policy.
+
+## Lessons learned
+
+**On cloud object storage, the number of operations costs more than the number of bytes.** The first Bronze ingestion extracted every image in the archives into a Unity Catalog Volume as its own file, one cloud write per JPEG. For ISIC 2019's roughly 33,000 images that cost about $17 for a single run and took 90 minutes. Staging each archive once on local disk and reading images from there brought the run down to 5 minutes. The design later went further and stopped storing image bytes anywhere except the original archives ([ADR 006](docs/decisions/006-stream-archives-no-blob-storage.md)).
 
 ## Local setup
 

@@ -16,10 +16,14 @@ Two Unity Catalog volumes are used for file storage:
 /Volumes/derm_showcase_project/bronze/landing/
   archives/
     isic_2019/
+    milk10k/
 /Volumes/derm_showcase_project/bronze/files/
   isic_2019/
     metadata/
+  milk10k/
+    metadata/
   gold/sample-v1/
+    metadata/        (per-dataset source metadata CSVs for the release)
     shards/
       train/
       validation/
@@ -59,23 +63,24 @@ Catalog: derm_showcase_project
   Schema: gold
     Tables:
       manifest_rows
+      training_run_registry
     Views:
       manifest_registry
+    Models:
+      baseline_classifier   (Unity Catalog model registered by training)
 ```
 
 The catalog holds logical tabular assets only — source archives stay in the landing Volume as the sole permanent store of image bytes, never written to a table or materialized as an individual Volume object (`docs/decisions/006-stream-archives-no-blob-storage.md`). Raw metadata, manifests, and the derived Gold shard export live in Unity Catalog volume paths. In short: the Volume layout above describes where files live; this catalog structure describes where tables live.
 
-## Databricks jobs
+## Pipeline stages
 
-Kept intentionally small:
+Each stage is a numbered notebook, run by hand in order today. Scheduling them as Databricks Jobs is future work.
 
 1. **Bronze ingestion** — stage each archive locally, index checksum/archive locator per image (no bytes retained), ingest metadata.
 2. **Silver validation** — stream candidate images from their source archives, validate, normalize metadata, assign leakage-control groups.
-3. **Gold publishing** — generate a deterministic classification manifest and dataset card.
+3. **Gold publishing** — generate a deterministic classification manifest (a dataset card is deferred).
 4. **Gold shard export** — stream a published manifest's images into a derived, per-release MosaicML shard export.
-5. **Training** — consume the shard export (locally or via a mounted Volume on a Databricks ML cluster), track metrics in MLflow.
-
-Job definitions don't need to be committed until deployment begins, but the code already assumes this structure.
+5. **Training** — consume the shard export (locally, or on Databricks serverless reading the Volume), track metrics in MLflow.
 
 ## Training and reproducibility
 
@@ -96,6 +101,6 @@ never written to directly, since a local run has no Spark session. See
 - Source image bytes are immutable in the landing-volume archives, the sole permanent store at any layer — checked, not assumed: Silver validation and Gold shard export both re-verify each streamed image's checksum against what Bronze originally recorded, failing loudly on any mismatch (`docs/decisions/008-immutable-source-archives-checksum-verified.md`).
 - Silver and Gold reference the source archive (via `bronze_uri`) rather than duplicating bytes into a table. The one scoped exception, the Gold shard export, is a derived, fully rebuildable cache, never a second source of truth (`docs/decisions/006-stream-archives-no-blob-storage.md`) — how long it's kept around is still undecided (`docs/decisions/009-gold-shard-retention-undecided.md`).
 - Preprocessing is versioned config (`config/preprocessing/<name>.yaml`), applied at training/inference runtime only — never baked into stored bytes (`docs/decisions/010-pin-data-and-preprocessing-per-training-run.md`).
-- Every Gold release is traceable to the Git commit and source-image checksums that produced it.
+- Every Gold release is traceable to its source files, source-image checksums, config and seeds. The Git commit is recorded per training run (MLflow), not per Gold release.
 - Every trained model is traceable to the exact `dataset_version` + `preprocessing_version` it used, via `gold.training_run_registry`.
 - Fixture tests use only small local files, never the full ISIC dataset.

@@ -1,4 +1,4 @@
-# 004. Cross-dataset leakage is not checked; datasets are assumed non-overlapping
+# 004. Cross-dataset patient/lesion leakage is not checked (duplicate images are)
 
 Status: accepted; the checksum-based check named in the third paragraph below as "not implemented"
 is now implemented — see the note at the end of that paragraph
@@ -11,4 +11,4 @@ Grouping is computed with `dataset_key` in scope, and `group_id` embeds `dataset
 
 **Implemented**: `data_platform.spark_io.assert_no_cross_dataset_duplicate_checksums(spark, silver_tables, dataset_keys)` — called from `notebooks/30_create_gold_manifest.ipynb` right after building each dataset's candidate leakage groups, before sampling/split assignment. A no-op for a single-dataset manifest; for a manifest spanning more than one `dataset_key` (e.g. `sample-v1`, which already combines `isic_2019` and `milk10k`), it raises if any `source_checksum` appears under more than one `dataset_key`, rather than silently letting a real duplicate land in different splits across its two copies. It only catches literal byte-identical reuse, not the same patient or lesion photographed differently — that broader gap (named in the paragraph above) still stands.
 
-This pipeline therefore assumes, without verifying, that its onboarded source datasets are drawn from non-overlapping patient and lesion populations. This is a limitation, not a guarantee — it's the same "patient/lesion leakage inflates results" risk already named in the original project plan (`docs/ISIC_2019_Data_Engineering_Project_Plan_v3.md`), just extended across datasets instead of within one.
+This pipeline therefore assumes, without verifying, that its onboarded source datasets are drawn from non-overlapping patient and lesion populations. This is a limitation, not a guarantee — it's the same "patient/lesion leakage inflates results" risk already named in the original project plan, just extended across datasets instead of within one.

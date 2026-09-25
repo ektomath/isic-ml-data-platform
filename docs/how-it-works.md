@@ -15,8 +15,6 @@ The goal the whole design serves:
 | Gold manifest and shard export | Built, and run on Databricks for the small `sample-v1` release, producing its training shards |
 | Baseline training | Built and unit-tested, including an end-to-end smoke test that trains on tiny real shards and logs to a local MLflow store; not yet run against the real shards |
 
-The full checklist, with the reasoning behind each item, is in [project-checklist.md](project-checklist.md).
-
 ## The problem
 
 The source data is public dermoscopy images of skin lesions from the [ISIC Archive](https://www.isic-archive.com/): ISIC 2019 (about 33,000 images, split into train and test zip archives) and MILK10k (one archive). Each archive holds the images plus a metadata CSV with the diagnosis. Training a classifier straight from those files has three hidden traps:
@@ -117,7 +115,7 @@ zip archive in the landing Volume                  (the only copy of the bytes)
 
 Every non-obvious call is written up as an Architecture Decision Record in [`docs/decisions/`](decisions/), including the ones that were later reversed. The most important:
 
-**Stream from the source archives; never store image bytes anywhere else** ([ADR 006](decisions/006-stream-archives-no-blob-storage.md)). The first version extracted each image to cloud storage as its own file, which cost about $17 and 90 minutes per run because cloud storage charges per operation ([lessons learned](lessons-learned.md)). The second version ([ADR 002](decisions/002-store-bronze-images-as-delta-blobs.md), now superseded) wrote the bytes into a Delta table instead, which cut the run to about 5 minutes but kept a second copy of every image. The current design removes that copy entirely. [ADR 007](decisions/007-defer-disk-writes-until-unavoidable.md) generalizes the lesson: only persist data when a step genuinely needs it.
+**Stream from the source archives; never store image bytes anywhere else** ([ADR 006](decisions/006-stream-archives-no-blob-storage.md)). The first version extracted each image to cloud storage as its own file, which cost about $17 and 90 minutes per run because cloud storage charges per operation ([lessons learned](../README.md#lessons-learned)). The second version ([ADR 002](decisions/002-store-bronze-images-as-delta-blobs.md), now superseded) wrote the bytes into a Delta table instead, which cut the run to about 5 minutes but kept a second copy of every image. The current design removes that copy entirely. [ADR 007](decisions/007-defer-disk-writes-until-unavoidable.md) generalizes the lesson: only persist data when a step genuinely needs it.
 
 **Verify immutability by checksum, not assumption** ([ADR 008](decisions/008-immutable-source-archives-checksum-verified.md)). Because every layer re-reads the archives, a silently replaced archive would change what old manifests point at. Every re-read is hashed and compared against what Bronze recorded.
 
@@ -183,5 +181,4 @@ Every notebook ends with a review cell that prints what it produced. The Gold no
 - [architecture.md](architecture.md): storage layout and Unity Catalog structure
 - [data_contract.md](data_contract.md): every table's and config file's columns and rules
 - [silver_validation_rules.md](silver_validation_rules.md): image validation thresholds per dataset
-- [lessons-learned.md](lessons-learned.md): what went wrong and what changed
-- [AGENT.md](../AGENT.md): conventions and current working state in full detail
+- [decisions/](decisions/): every design decision record, with an index
