@@ -1,10 +1,14 @@
 # ISIC ML Data Platform
 
+I set out to build a central data platform that holds many dermatology image datasets side by side and lets you assemble machine learning training sets from any combination of them. Duplicate images can't leak between training and test data, and every training set is reproducible: for any trained ML model you can recreate exactly which images, labels and preprocessing it was trained on. The implementation was designed and tested around two datasets, ISIC 2019 and MILK10k.
+
 > A portfolio project demonstrating Azure, Databricks, and reproducible computer-vision data engineering.
 
-An Azure and Databricks-based data platform that turns raw dermatology images and metadata into validated Bronze, Silver, and Gold data products, and trains a baseline classifier against them. The goal it's built around:
+An Azure and Databricks-based data platform that turns raw dermatology images and metadata into validated Bronze, Silver, and Gold data products, and includes baseline classifier training code built against them (not yet run end to end, see [Development approach](#development-approach)). The goal it's built around:
 
 > A reviewer can trace a trained model back to an immutable Gold manifest, a validated Silver inventory, and the exact Bronze image checksums used to create it.
+
+Adding a dataset takes a config file in `config/bronze/datasets/` and a mostly-configuration Silver notebook, not new pipeline code. The current ingestion code handles archive-based sources, so a dataset delivered some other way (for example, from an API) would need its own ingestion step.
 
 ## Architecture
 
@@ -18,10 +22,12 @@ Training pins exactly which data *and* preprocessing a run used, then records it
 
 See [`docs/architecture.md`](docs/architecture.md) for the full system layout and Databricks execution model, and [`docs/data_contract.md`](docs/data_contract.md) for every table schema.
 
+New to the project? [How it works](docs/how-it-works.md) is a 10-minute walkthrough of the layers, the data flow, the key decisions and how to run it.
+
 ## What's here
 
 - **`src/data_platform/`** — the Bronze/Silver/Gold pipeline: archive streaming, image validation, label normalization, leakage-aware sampling, Spark orchestration.
-- **`src/ml/`** — baseline classifier training (PyTorch/torchvision), runnable identically from a Databricks notebook or a local script, with MLflow logging and pinned data+preprocessing provenance.
+- **`src/ml/`** — baseline classifier training (PyTorch/torchvision), designed to run identically from a Databricks notebook or a local script, with MLflow logging and pinned data+preprocessing provenance. Unit-tested locally, not yet run on Databricks.
 - **`config/`** — one versioned YAML file per dataset, Gold manifest, shard export, preprocessing recipe, and training run — never inline values in a notebook.
 - **`notebooks/`** — the numbered pipeline stages (`00` setup → `10` Bronze → `20` Silver → `30`/`31` Gold → `40` training), run manually in sequence.
 - **`tests/`** — fixture-backed checks (real tiny archives/shards/MLflow stores, no mocks) for everything that doesn't require a live Spark session.
@@ -52,4 +58,9 @@ Uses the [ISIC Archive](https://www.isic-archive.com/) and the [ISIC Archive API
 
 ## Development approach
 
-Built with heavy use of AI tools for iterative code and documentation generation, in small reviewed chunks rather than one large unsupervised generation pass. I review, edit, and validate the output manually, and keep architectural decisions, implementation quality, and final responsibility under my own control. I aim to use AI as an accelerant, not a replacement for engineering judgment.
+Built with heavy use of AI tools for code and documentation, generated in small iterative chunks rather than one large unsupervised pass. I make the architectural decisions myself and take final responsibility for the result. Here is what I have and haven't checked personally:
+
+- **Reviewed and edited by me:** all code in `src/`, the configs, the notebooks, the docs and the ADRs.
+- **Verified by running it:** Bronze and Silver, rerun on Databricks against real ISIC data for both onboarded datasets, and the Gold notebooks, run to produce training shards.
+- **Not reviewed line by line:** the test suite in `tests/`. I've checked what it covers and that it passes, but I haven't read every assertion.
+- **Not verified end to end:** baseline classifier training (`src/ml/`). The code is complete and passes a local smoke test on tiny fixture shards, but I never ran it on Databricks because my credits ran out first. Treat anything the docs say about real training runs as untested.
