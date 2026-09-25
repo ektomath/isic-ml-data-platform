@@ -48,14 +48,14 @@ New to the project? [How it works](docs/how-it-works.md) is a 10-minute walkthro
 
 A few of the more interesting calls, out of the [full decision log](docs/decisions/):
 
-- [Stream from source archives, never store image bytes anywhere else](docs/decisions/006-stream-archives-no-blob-storage.md) — the central storage decision, after an earlier design ([superseded](docs/decisions/002-store-bronze-images-as-delta-blobs.md)) cost $17 in 90 minutes on per-object cloud writes (see [Lessons learned](#lessons-learned)).
+- [Stream from source archives, never store image bytes anywhere else](docs/decisions/006-stream-archives-no-blob-storage.md) — the central storage decision, after an earlier design ([superseded](docs/decisions/002-store-bronze-images-as-delta-blobs.md)) cost about $17 and 90 minutes per run, one cloud write for each of ~33,000 images (see [Lessons learned](#lessons-learned)).
 - [Verify source-archive immutability by checksum, not assumption](docs/decisions/008-immutable-source-archives-checksum-verified.md) — every layer that streams bytes re-verifies them against what Bronze originally recorded.
 - [Pin exactly which data + preprocessing a training run used](docs/decisions/010-pin-data-and-preprocessing-per-training-run.md) — so a trained model's reported metrics are never just a matter of trusting training-code discipline.
 - [Retention for derived artifacts is an open question, not a default](docs/decisions/009-gold-shard-retention-undecided.md) — a deliberate retraction of an earlier, premature policy.
 
 ## Lessons learned
 
-**On cloud object storage, the number of operations costs more than the number of bytes.** The first Bronze ingestion extracted every image in the archives into a Unity Catalog Volume as its own file, one cloud write per JPEG. For ISIC 2019's roughly 33,000 images that cost about $17 for a single run and took 90 minutes. Staging each archive once on local disk and reading images from there brought the run down to 5 minutes. The design later went further and stopped storing image bytes anywhere except the original archives ([ADR 006](docs/decisions/006-stream-archives-no-blob-storage.md)).
+**On cloud object storage, the number of operations costs more than the number of bytes.** The first Bronze ingestion extracted every image in the archives into a Unity Catalog Volume as its own file, one cloud write per JPEG. For ISIC 2019's roughly 33,000 images that meant about 33,000 separate writes: a single run took 90 minutes and cost about $17, which is too much to rerun freely on a personal budget. Staging each archive once on local disk and reading images from there brought the run down to 5 minutes and an estimated $6. The design later went further and stopped storing image bytes anywhere except the original archives ([ADR 006](docs/decisions/006-stream-archives-no-blob-storage.md)).
 
 ## Local setup
 

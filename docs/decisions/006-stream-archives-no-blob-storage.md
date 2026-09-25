@@ -8,7 +8,7 @@ Image bytes were stored twice: once in the original source archives and again in
 
 ## Context
 
-The first Bronze design extracted every image into a Unity Catalog Volume as its own file. For about 33,000 ISIC 2019 images that took 90 minutes and cost roughly $17 per run, because cloud storage charges per operation, not per byte. [ADR 002](002-store-bronze-images-as-delta-blobs.md) fixed that by staging each archive on local disk and writing the image bytes into a Bronze Delta table instead.
+The first Bronze design extracted every image into a Unity Catalog Volume as its own file. For about 33,000 ISIC 2019 images that meant about 33,000 separate cloud writes, and a run took 90 minutes and cost roughly $17, because cloud storage charges per operation, not per byte. On a personal budget, that's too much to rerun freely. [ADR 002](002-store-bronze-images-as-delta-blobs.md) fixed that by staging each archive on local disk and writing the image bytes into a Bronze Delta table instead.
 
 That solved the cost problem but left the bytes in two places: the archives in the landing Volume and the Bronze table. Silver then joined that table to validate images, and Gold would have needed it again for export. The second copy wasn't buying anything. The archives are already durable, never modified, and checksummed at ingestion ([ADR 008](008-immutable-source-archives-checksum-verified.md)).
 

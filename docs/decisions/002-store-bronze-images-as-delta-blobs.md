@@ -4,7 +4,7 @@ Status: superseded by [006](006-stream-archives-no-blob-storage.md).
 
 ## Summary
 
-The first Bronze design wrote every image into a Unity Catalog Volume as its own file, and a single ingestion run took 90 minutes and cost about $17. This decision replaced that with staging each archive on local disk and writing the image bytes into a Bronze Delta table in batches. It fixed the cost, but kept a second copy of every image. [ADR 006](006-stream-archives-no-blob-storage.md) later removed that copy too.
+The first Bronze design wrote every image into a Unity Catalog Volume as its own file. For ISIC 2019's roughly 33,000 images that meant about 33,000 separate cloud writes, and a single ingestion run took 90 minutes and cost about $17. That's too much to rerun freely on a personal budget, and a pipeline has to be rerunnable. This decision staged each archive on local disk and wrote the image bytes into a Bronze Delta table in batches, which brought a run down to about 5 minutes and an estimated $6. It fixed the cost, but kept a second copy of every image. [ADR 006](006-stream-archives-no-blob-storage.md) later removed that copy too.
 
 ## Context
 
