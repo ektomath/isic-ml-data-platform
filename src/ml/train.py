@@ -44,6 +44,22 @@ def _build_resnet18(num_classes: int, pretrained: bool) -> nn.Module:
 # below in spirit; add a new architecture by adding a builder function and an entry here.
 _ARCHITECTURE_BUILDERS = {"resnet18": _build_resnet18}
 
+# Architectures that take image input only. Every architecture is image-only today; a
+# multimodal one that consumes metadata features stays out of this set.
+_IMAGE_ONLY_ARCHITECTURES = {"resnet18"}
+
+
+def check_metadata_preprocessing_is_used(architecture: str, metadata_preprocessing_version: str | None) -> None:
+    """Raise if a training-run config pins a metadata_preprocessing_version for an image-only
+    architecture. The model would never see those features, so recording the version would
+    claim a provenance the run doesn't have (docs/decisions/012-pin-metadata-feature-config-per-training-run.md)."""
+    if metadata_preprocessing_version is not None and architecture in _IMAGE_ONLY_ARCHITECTURES:
+        raise ValueError(
+            f"Training-run config sets metadata_preprocessing_version={metadata_preprocessing_version!r}, "
+            f"but architecture {architecture!r} uses images only and would ignore it. Remove the field, "
+            "or use an architecture that consumes metadata features."
+        )
+
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Train the baseline Gold classifier.")
@@ -201,6 +217,7 @@ def run_training(
     config_root = Path(config_root) if config_root is not None else DEFAULT_CONFIG_ROOT
     git_commit = resolve_git_commit()
     spec = resolve_training_run(config_root, training_run_name)
+    check_metadata_preprocessing_is_used(spec.architecture, spec.metadata_preprocessing_version)
     random_seed = spec.preprocessing_config["random_seed"]
     torch.manual_seed(random_seed)
 

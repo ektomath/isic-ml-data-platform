@@ -14,7 +14,7 @@ The metadata CSV is an unmodified copy of Bronze rows. A model can't use it as-i
 
 - **A versioned recipe** in `config/metadata_preprocessing/<name>.yaml` lists the columns to keep and how to encode each one: a fill value for missing numbers, or a fixed category list for one-hot encoding plus a bucket for unknown values. Any column not listed is dropped.
 - **Applied only at load time** by `ml.metadata_preprocessing.build_metadata_transform`, the metadata equivalent of the image transforms. The exported CSV itself is never changed.
-- **Pinned per training run** through an optional `metadata_preprocessing_version` in the training-run config. It's optional because the baseline model uses images only. It's resolved today, but not yet logged to MLflow or the registry; that comes with the first training script that uses it.
+- **Pinned per training run** through an optional `metadata_preprocessing_version` in the training-run config. It's optional because the baseline model uses images only. It's resolved today, but not yet logged to MLflow or the registry; that comes with the first training script that uses it. Until then, training refuses a config that sets it for an image-only model, so a pinned version can never be one the model ignored.
 - **Datasets that name or code a field differently** are reconciled in the same recipe. A field can map each dataset to its own column name (`source_columns`) and remap its values onto a shared vocabulary (`value_map`), for example `M`/`F` onto `male`/`female`. The export adds a `dataset_key` column so rows from several datasets can be told apart.
 
 ## Alternatives considered

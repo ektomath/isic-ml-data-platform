@@ -1,4 +1,6 @@
-from ml.train import check_shards_exist
+import pytest
+
+from ml.train import check_metadata_preprocessing_is_used, check_shards_exist
 
 
 def _write_index_json(shard_dir):
@@ -40,3 +42,12 @@ def test_check_shards_exist_treats_a_directory_with_no_index_json_as_missing(tmp
         assert "train" in str(error) and "validation" in str(error) and "test" in str(error)
     else:
         raise AssertionError("Expected a directory with no index.json to be treated as missing")
+
+
+def test_check_metadata_preprocessing_is_used_rejects_metadata_for_an_image_only_model():
+    with pytest.raises(ValueError, match="uses images only"):
+        check_metadata_preprocessing_is_used("resnet18", "baseline-v1")
+
+
+def test_check_metadata_preprocessing_is_used_allows_an_image_only_run_without_metadata():
+    check_metadata_preprocessing_is_used("resnet18", None)  # should not raise
