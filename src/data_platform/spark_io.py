@@ -553,7 +553,7 @@ def validate_images(
     `stage_archives_and_extract_metadata` already produce elsewhere in this project,
     staged locally before this call. `min_dimension`/`max_dimension` default to
     `data_platform.validate`'s defaults; override them for a dataset whose images are
-    a structurally different size range (see docs/silver_validation_rules.md).
+    a structurally different size range (see docs/datasets/).
     """
     candidate_rows = label_valid_df.select(
         "image_id", "source_split", "source_checksum", F.col(bronze_uri_col).alias("bronze_uri")

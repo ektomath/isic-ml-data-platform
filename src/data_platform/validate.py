@@ -10,7 +10,7 @@ from PIL import Image, UnidentifiedImageError
 # Defaults only. A dataset with a structurally different image domain (e.g. whole-slide
 # scans, which routinely exceed MAX_DIMENSION as normal, not corrupted) overrides these
 # via decode_image's/decode_batch's parameters rather than editing these constants.
-# See docs/silver_validation_rules.md for what each onboarded dataset actually uses.
+# See docs/datasets/ for what each onboarded dataset actually uses.
 MIN_DIMENSION = 50
 MAX_DIMENSION = 15000
 

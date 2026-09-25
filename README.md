@@ -8,7 +8,7 @@ The goal it's built around:
 
 > A reviewer can trace a trained model back to an immutable Gold manifest, a validated Silver inventory, and the exact Bronze image checksums used to create it.
 
-Adding a dataset takes a config file in `config/bronze/datasets/` and a mostly-configuration Silver notebook, not new pipeline code. The current ingestion code handles archive-based sources, so a dataset delivered some other way (for example, from an API) would need its own ingestion step.
+Adding a dataset takes a config file, its own Bronze notebooks for the parts that depend on how the source is packaged, and a Silver notebook that is mostly configuration. Checksumming, validation, labeling, leakage grouping and everything in Gold are shared code. See [Datasets](docs/datasets/README.md) for the steps and one page per onboarded dataset.
 
 ## Status
 
@@ -42,7 +42,7 @@ New to the project? [How it works](docs/how-it-works.md) is a 10-minute walkthro
 - **`config/`** — one versioned YAML file per dataset, Gold manifest, shard export, preprocessing recipe, and training run — never inline values in a notebook.
 - **`notebooks/`** — the numbered pipeline stages (`00` setup → `10` Bronze → `20` Silver → `30`/`31` Gold → `40` training), run manually in sequence.
 - **`tests/`** — fixture-backed checks (real tiny archives/shards/MLflow stores, no mocks) for everything that doesn't require a live Spark session.
-- **`docs/`** — the [walkthrough](docs/how-it-works.md), architecture, data contract, and an [ADR log](docs/decisions/) recording every non-obvious design decision (and why it changed).
+- **`docs/`** — the [walkthrough](docs/how-it-works.md), architecture, data contract, [one page per dataset](docs/datasets/README.md), and an [ADR log](docs/decisions/) recording every non-obvious design decision (and why it changed).
 
 ## Key design decisions
 

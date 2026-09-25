@@ -60,7 +60,7 @@ Notebook: `notebooks/<dataset>/20_silver_validate.ipynb`. The notebook is mostly
    - `specific_diagnosis`: the most specific diagnosis available, kept as free text.
 
    Rows where neither label resolves are rejected with a reason.
-3. **Validate images.** Each candidate is streamed from its archive, checksum-verified and decoded. Unreadable images and images outside 50 to 15,000 pixels per side are rejected ([validation rules](silver_validation_rules.md)).
+3. **Validate images.** Each candidate is streamed from its archive, checksum-verified and decoded. Unreadable images and images outside 50 to 15,000 pixels per side are rejected ([validation thresholds](datasets/README.md#default-image-validation-thresholds)).
 4. **Group for leakage control.** Every accepted image gets a `group_id`, chosen in priority order: identical bytes, then same lesion, then same patient, otherwise its own group. Splits are later made by group, never by image.
 5. **Write.** Results are upserted into three tables shared by every dataset and keyed on `dataset_key`:
    - `silver.image_inventory`: one row per accepted image, with labels, dimensions and group.
@@ -180,5 +180,5 @@ Every notebook ends with a review cell that prints what it produced. The Gold no
 
 - [architecture.md](architecture.md): storage layout and Unity Catalog structure
 - [data_contract.md](data_contract.md): every table's and config file's columns and rules
-- [silver_validation_rules.md](silver_validation_rules.md): image validation thresholds per dataset
+- [datasets/](datasets/README.md): one page per dataset, and how to add one
 - [decisions/](decisions/): every design decision record, with an index
