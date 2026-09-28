@@ -1,40 +1,46 @@
-<svg viewBox="0 0 1470 988" xmlns="http://www.w3.org/2000/svg" font-family="'IBM Plex Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Arial, sans-serif">
+<svg viewBox="0 0 1470 1018" xmlns="http://www.w3.org/2000/svg" font-family="'IBM Plex Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Arial, sans-serif">
 
 <defs>
   <marker id="arrowHead" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
     <path d="M0,0 L10,5 L0,10 Z" fill="#8B93A3"/>
   </marker>
+  <marker id="arrowStream" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+    <path d="M0,0 L10,5 L0,10 Z" fill="#3E4C6B"/>
+  </marker>
 </defs>
 
-<rect x="0" y="0" width="1470" height="988" fill="#F6F5F2"/>
+<rect x="0" y="0" width="1470" height="1018" fill="#F6F5F2"/>
 <text x="735.0" y="52" text-anchor="middle" font-size="34" font-weight="700" fill="#1B2333">ISIC ML Data Platform — Data Pipeline</text>
 <text x="735.0" y="80" text-anchor="middle" font-size="14" fill="#5B6472">Bronze / Silver / Gold medallion pipeline on Databricks Unity Catalog · see "Training &amp; Reproducibility" for what happens next</text>
 
 <!-- Legend -->
-<g transform="translate(450.6,92) scale(0.6666666666666666)" fill="none" stroke="#5B6472" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><circle cx="9" cy="10" r="1.8"/><path d="M4 17 L9 12 L13 16 L16 13 L20 17"/></g>
-<text x="472.6" y="105" font-size="12" fill="#5B6472">Image file</text>
+<g transform="translate(450.6,92) scale(0.6666666666666666)" fill="none" stroke="#5B6472" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M12 3 V7 M12 9 V11 M12 13 V15"/><rect x="10" y="15" width="4" height="4" rx="1"/></g>
+<text x="472.6" y="105" font-size="12" fill="#5B6472">Zip archive</text>
 <g transform="translate(590.0,92) scale(0.6666666666666666)" fill="none" stroke="#5B6472" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10 H21 M10 10 V20 M16 10 V20"/></g>
 <text x="612.0" y="105" font-size="12" fill="#5B6472">Delta table / view</text>
 <g transform="translate(745.0,92) scale(0.6666666666666666)" fill="none" stroke="#5B6472" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="6" rx="1.5"/><rect x="4" y="13" width="16" height="6" rx="1.5"/></g>
 <text x="767.0" y="105" font-size="12" fill="#5B6472">Shard files</text>
 <g transform="translate(900.0,92) scale(0.6666666666666666)" fill="none" stroke="#5B6472" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="18" rx="1.5"/><path d="M9 3 V21"/></g>
-<text x="922.0" y="105" font-size="12" fill="#5B6472">Markdown document</text>
+<text x="922.0" y="105" font-size="12" fill="#5B6472">Document / CSV</text>
 
 <!-- Source Datasets lane -->
 <rect x="40" y="136" width="220" height="610" rx="18" fill="rgba(62,76,107,0.07)" stroke="rgba(62,76,107,0.28)" stroke-width="1.5"/>
 <rect x="40" y="136" width="220" height="52" rx="14" fill="#3E4C6B"/><rect x="40" y="162" width="220" height="26" fill="#3E4C6B"/>
-<text x="150.0" y="169" text-anchor="middle" font-size="19" font-weight="600" fill="#FFFFFF">Source Datasets</text>
+<text x="150.0" y="169" text-anchor="middle" font-size="19" font-weight="600" fill="#FFFFFF">Landing Volume</text>
 
 <rect x="56" y="344.0" width="188" height="118" rx="10" fill="#FFFFFF" stroke="#E4E1D9" stroke-width="1"/>
-<g transform="translate(138.0,358.0) scale(1.0)" fill="none" stroke="#3E4C6B" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><circle cx="9" cy="10" r="1.8"/><path d="M4 17 L9 12 L13 16 L16 13 L20 17"/></g>
-<text x="150.0" y="404.0" text-anchor="middle" font-size="16.5" font-weight="600" fill="#1B2333">Images</text>
-<text x="150.0" y="424.0" text-anchor="middle" font-size="12.5" fill="#5B6472">Source image files</text>
+<g transform="translate(138.0,358.0) scale(1.0)" fill="none" stroke="#3E4C6B" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M12 3 V7 M12 9 V11 M12 13 V15"/><rect x="10" y="15" width="4" height="4" rx="1"/></g>
+<text x="150.0" y="404.0" text-anchor="middle" font-size="16.5" font-weight="600" fill="#1B2333">Source archives</text>
+<text x="150.0" y="424.0" text-anchor="middle" font-size="12.5" fill="#5B6472">Zip files, per dataset · the</text>
+<text x="150.0" y="440.0" text-anchor="middle" font-size="12.5" fill="#5B6472">only copy of image bytes</text>
 
 <rect x="56" y="480.0" width="188" height="118" rx="10" fill="#FFFFFF" stroke="#E4E1D9" stroke-width="1"/>
 <g transform="translate(138.0,494.0) scale(1.0)" fill="none" stroke="#3E4C6B" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M8 8 H16 M8 12 H16 M8 16 H13"/></g>
-<text x="150.0" y="540.0" text-anchor="middle" font-size="16.5" font-weight="600" fill="#1B2333">Metadata</text>
-<text x="150.0" y="560.0" text-anchor="middle" font-size="12.5" fill="#5B6472">Includes labels and</text>
-<text x="150.0" y="576.0" text-anchor="middle" font-size="12.5" fill="#5B6472">attributes</text>
+<text x="150.0" y="540.0" text-anchor="middle" font-size="16.5" font-weight="600" fill="#1B2333">Metadata CSV</text>
+<text x="150.0" y="560.0" text-anchor="middle" font-size="12.5" fill="#5B6472">One per archive, with</text>
+<text x="150.0" y="576.0" text-anchor="middle" font-size="12.5" fill="#5B6472">labels and attributes</text>
+
+<text x="150.0" y="724" text-anchor="middle" font-size="12.5" font-weight="600" letter-spacing="0.2" fill="#3E4C6B">Never modified after ingest</text>
 
 <!-- Bronze lane -->
 <rect x="350" y="136" width="300" height="610" rx="18" fill="rgba(169,104,59,0.07)" stroke="rgba(169,104,59,0.28)" stroke-width="1.5"/>
@@ -43,21 +49,22 @@
 
 <rect x="366" y="253.0" width="268" height="118" rx="10" fill="#FFFFFF" stroke="#E4E1D9" stroke-width="1"/>
 <g transform="translate(488.0,267.0) scale(1.0)" fill="none" stroke="#A9683B" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10 H21 M10 10 V20 M16 10 V20"/></g>
-<text x="500.0" y="313.0" text-anchor="middle" font-family="'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Consolas, 'Liberation Mono', monospace" font-size="14" font-weight="600" fill="#1B2333">image_index</text>
+<text x="500.0" y="313.0" text-anchor="middle" font-family="'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Consolas, 'Liberation Mono', monospace" font-size="14" font-weight="600" fill="#1B2333">&lt;dataset&gt;_image_index</text>
 <text x="500.0" y="333.0" text-anchor="middle" font-size="12.5" fill="#5B6472">Delta table — checksums &amp; archive</text>
 <text x="500.0" y="349.0" text-anchor="middle" font-size="12.5" fill="#5B6472">locators, no image bytes</text>
 
 <rect x="366" y="389.0" width="268" height="118" rx="10" fill="#FFFFFF" stroke="#E4E1D9" stroke-width="1"/>
 <g transform="translate(488.0,403.0) scale(1.0)" fill="none" stroke="#A9683B" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10 H21 M10 10 V20 M16 10 V20"/></g>
-<text x="500.0" y="449.0" text-anchor="middle" font-family="'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Consolas, 'Liberation Mono', monospace" font-size="14" font-weight="600" fill="#1B2333">source_metadata</text>
-<text x="500.0" y="469.0" text-anchor="middle" font-size="12.5" fill="#5B6472">Raw metadata, incl. labels &amp;</text>
-<text x="500.0" y="485.0" text-anchor="middle" font-size="12.5" fill="#5B6472">attributes</text>
+<text x="500.0" y="449.0" text-anchor="middle" font-family="'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Consolas, 'Liberation Mono', monospace" font-size="14" font-weight="600" fill="#1B2333">&lt;dataset&gt;_source_metadata</text>
+<text x="500.0" y="469.0" text-anchor="middle" font-size="12.5" fill="#5B6472">Metadata as published, incl.</text>
+<text x="500.0" y="485.0" text-anchor="middle" font-size="12.5" fill="#5B6472">labels &amp; attributes</text>
 
 <rect x="366" y="525.0" width="268" height="118" rx="10" fill="#FFFFFF" stroke="#E4E1D9" stroke-width="1"/>
 <g transform="translate(488.0,539.0) scale(1.0)" fill="none" stroke="#A9683B" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10 H21 M10 10 V20 M16 10 V20"/></g>
 <text x="500.0" y="585.0" text-anchor="middle" font-family="'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Consolas, 'Liberation Mono', monospace" font-size="14" font-weight="600" fill="#1B2333">ingestion_runs</text>
-<text x="500.0" y="605.0" text-anchor="middle" font-size="12.5" fill="#5B6472">Run log and checksums</text>
-<text x="500.0" y="724" text-anchor="middle" font-size="12.5" font-weight="600" letter-spacing="0.2" fill="#A9683B">Immutable raw data · preserve source faithfully</text>
+<text x="500.0" y="605.0" text-anchor="middle" font-size="12.5" fill="#5B6472">One row per ingestion run,</text>
+<text x="500.0" y="621.0" text-anchor="middle" font-size="12.5" fill="#5B6472">shared across datasets</text>
+<text x="500.0" y="724" text-anchor="middle" font-size="12.5" font-weight="600" letter-spacing="0.2" fill="#A9683B">Per-dataset tables · source kept as published</text>
 
 <!-- Silver lane -->
 <rect x="740" y="136" width="300" height="610" rx="18" fill="rgba(91,113,134,0.07)" stroke="rgba(91,113,134,0.28)" stroke-width="1.5"/>
@@ -80,7 +87,7 @@
 <g transform="translate(878.0,539.0) scale(1.0)" fill="none" stroke="#5B7186" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10 H21 M10 10 V20 M16 10 V20"/></g>
 <text x="890.0" y="585.0" text-anchor="middle" font-family="'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Consolas, 'Liberation Mono', monospace" font-size="14" font-weight="600" fill="#1B2333">rejected_records</text>
 <text x="890.0" y="605.0" text-anchor="middle" font-size="12.5" fill="#5B6472">Failed validations, with reason</text>
-<text x="890.0" y="724" text-anchor="middle" font-size="12.5" font-weight="600" letter-spacing="0.2" fill="#5B7186">Trusted, validated data · canonical records</text>
+<text x="890.0" y="724" text-anchor="middle" font-size="12.5" font-weight="600" letter-spacing="0.2" fill="#5B7186">Validated records · shared across datasets</text>
 
 <!-- Gold lane -->
 <rect x="1130" y="136" width="300" height="610" rx="18" fill="rgba(166,130,46,0.07)" stroke="rgba(166,130,46,0.28)" stroke-width="1.5"/>
@@ -101,8 +108,9 @@
 
 <rect x="1146" y="525.0" width="268" height="118" rx="10" fill="#FFFFFF" stroke="#E4E1D9" stroke-width="1"/>
 <g transform="translate(1268.0,539.0) scale(1.0)" fill="none" stroke="#A6822E" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="18" rx="1.5"/><path d="M9 3 V21"/></g>
-<text x="1280.0" y="585.0" text-anchor="middle" font-family="'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Consolas, 'Liberation Mono', monospace" font-size="14" font-weight="600" fill="#1B2333">dataset_card.md</text>
-<text x="1280.0" y="605.0" text-anchor="middle" font-size="12.5" fill="#5B6472">Data &amp; lineage docs (deferred)</text>
+<text x="1280.0" y="585.0" text-anchor="middle" font-weight="600" font-size="14" fill="#1B2333">Metadata CSV export</text>
+<text x="1280.0" y="605.0" text-anchor="middle" font-size="12.5" fill="#5B6472">Optional, one per dataset, for</text>
+<text x="1280.0" y="621.0" text-anchor="middle" font-size="12.5" fill="#5B6472">future image + metadata models</text>
 <text x="1280.0" y="724" text-anchor="middle" font-size="12.5" font-weight="600" letter-spacing="0.2" fill="#A6822E">Published, training-ready</text>
 
 <!-- Flow arrows -->
@@ -119,10 +127,18 @@
 <text x="1085.0" y="427.0" text-anchor="middle" font-size="12.5" font-weight="600" fill="#1B2333">Publish</text>
 <text x="1085.0" y="461.0" text-anchor="middle" font-family="'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Consolas, 'Liberation Mono', monospace" font-size="10.5" fill="#5B6472">Databricks</text>
 
+<!-- Image bytes are streamed from the archives, never from the tables -->
+<path d="M150 746 V772 H890 V752" fill="none" stroke="#3E4C6B" stroke-width="2" stroke-dasharray="6 5" marker-end="url(#arrowStream)"/>
+<path d="M890 772 H1280 V752" fill="none" stroke="#3E4C6B" stroke-width="2" stroke-dasharray="6 5" marker-end="url(#arrowStream)"/>
+<text x="500.0" y="766" text-anchor="middle" font-size="12.5" font-weight="600" fill="#3E4C6B">Image bytes streamed straight from the archives, checksum-verified</text>
+<text x="890.0" y="790" text-anchor="middle" font-size="11" fill="#5B6472">validation</text>
+<text x="1280.0" y="790" text-anchor="middle" font-size="11" fill="#5B6472">shard export</text>
+
 <!-- Continuation cue -->
 <text x="1280.0" y="674" text-anchor="middle" font-size="11" font-weight="600" fill="#3F7A68">See Training &amp; Reproducibility →</text>
 
 <!-- Footer callouts -->
+<g transform="translate(0,30)">
 <rect x="40" y="792" width="1390" height="118" rx="16" fill="#FFFFFF" stroke="#E4E1D9" stroke-width="1.2"/>
 
 <g transform="translate(66.0,816) scale(1.0833333333333333)" fill="none" stroke="#3E4C6B" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 L19.5 6 V12 C19.5 16.5 16.2 19.6 12 21 C7.8 19.6 4.5 16.5 4.5 12 V6 Z"/><path d="M8.7 12 L10.8 14.2 L15.3 9.5"/></g>
@@ -135,5 +151,6 @@
 <text x="801.0" y="832" font-size="15.5" font-weight="700" fill="#1B2333">Quality &amp; Governance</text>
 <text x="801.0" y="854" font-size="12.5" fill="#5B6472">Validation rules, rejected records, leakage</text>
 <text x="801.0" y="870" font-size="12.5" fill="#5B6472">control, and archive-immutability checks.</text>
+</g>
 
 </svg>

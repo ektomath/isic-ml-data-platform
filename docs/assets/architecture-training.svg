@@ -7,6 +7,9 @@
   <marker id="arrowSmall2" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
     <path d="M0,0 L10,5 L0,10 Z" fill="#6B4C8A"/>
   </marker>
+  <marker id="arrowSmall3" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+    <path d="M0,0 L10,5 L0,10 Z" fill="#3F7A68"/>
+  </marker>
 </defs>
 
 <rect x="0" y="0" width="1470" height="988" fill="#F6F5F2"/>
@@ -49,23 +52,33 @@
 <rect x="350" y="136" width="300" height="52" rx="14" fill="#3F7A68"/><rect x="350" y="162" width="300" height="26" fill="#3F7A68"/>
 <text x="500.0" y="169" text-anchor="middle" font-size="19" font-weight="600" fill="#FFFFFF">Training</text>
 
+<rect x="366" y="228.0" width="268" height="104" rx="10" fill="#FFFFFF" stroke="#E4E1D9" stroke-width="1"/>
+<g transform="translate(488.0,240.0) scale(1.0)" fill="none" stroke="#3F7A68" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="6" rx="1.5"/><rect x="4" y="13" width="16" height="6" rx="1.5"/></g>
+<text x="500.0" y="284.0" text-anchor="middle" font-size="14" font-weight="600" fill="#1B2333">Gold shards</text>
+<text x="500.0" y="304.0" text-anchor="middle" font-size="12.5" fill="#5B6472">One dataset_version, from</text>
+<text x="500.0" y="320.0" text-anchor="middle" font-size="12.5" fill="#5B6472">the data pipeline</text>
+<line x1="500.0" y1="334" x2="500.0" y2="378" stroke="#3F7A68" stroke-width="1.6" marker-end="url(#arrowSmall3)"/>
+<text x="512.0" y="360" font-size="10" fill="#3F7A68">read at load time</text>
+
 <rect x="366" y="382.0" width="268" height="118" rx="10" fill="#FFFFFF" stroke="#E4E1D9" stroke-width="1"/>
 <g transform="translate(488.0,396.0) scale(1.0)" fill="none" stroke="#3F7A68" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="6" r="2.1"/><circle cx="6" cy="18" r="2.1"/><circle cx="18" cy="18" r="2.1"/><path d="M10.5 7.6 L7.3 16.4 M13.5 7.6 L16.7 16.4 M8.1 18 H15.9"/></g>
 <text x="500.0" y="442.0" text-anchor="middle" font-family="'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Consolas, 'Liberation Mono', monospace" font-size="14" font-weight="600" fill="#1B2333">ml.train.run_training</text>
 <text x="500.0" y="462.0" text-anchor="middle" font-size="12.5" fill="#5B6472">PyTorch/torchvision ResNet-18</text>
-<text x="500.0" y="478.0" text-anchor="middle" font-size="12.5" fill="#5B6472">Reads shards + resolved config</text>
+<text x="500.0" y="478.0" text-anchor="middle" font-size="12.5" fill="#5B6472">Resolves config + git commit first</text>
 <text x="500.0" y="724" text-anchor="middle" font-size="12.5" font-weight="600" letter-spacing="0.2" fill="#3F7A68">Same call, local or Databricks</text>
+<text x="500.0" y="704" text-anchor="middle" font-size="11.5" fill="#5B6472">Smoke-tested locally; not yet run on Databricks</text>
 
 <!-- MLflow lane -->
 <rect x="740" y="136" width="300" height="610" rx="18" fill="rgba(46,107,138,0.07)" stroke="rgba(46,107,138,0.28)" stroke-width="1.5"/>
 <rect x="740" y="136" width="300" height="52" rx="14" fill="#2E6B8A"/><rect x="740" y="162" width="300" height="26" fill="#2E6B8A"/>
 <text x="890.0" y="169" text-anchor="middle" font-size="19" font-weight="600" fill="#FFFFFF">MLflow</text>
 
-<rect x="756" y="382.0" width="268" height="118" rx="10" fill="#FFFFFF" stroke="#E4E1D9" stroke-width="1"/>
+<rect x="756" y="382.0" width="268" height="134" rx="10" fill="#FFFFFF" stroke="#E4E1D9" stroke-width="1"/>
 <g transform="translate(878.0,396.0) scale(1.0)" fill="none" stroke="#2E6B8A" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M9 21 H15 M12 17 V21"/><path d="M7.5 14 V11 M12 14 V9 M16.5 14 V12"/></g>
 <text x="890.0" y="442.0" text-anchor="middle" font-size="14" font-weight="600" fill="#1B2333">MLflow Tracking</text>
 <text x="890.0" y="462.0" text-anchor="middle" font-size="12.5" fill="#5B6472">Tags: dataset + preprocessing</text>
-<text x="890.0" y="478.0" text-anchor="middle" font-size="12.5" fill="#5B6472">params, metrics, model artifact</text>
+<text x="890.0" y="478.0" text-anchor="middle" font-size="12.5" fill="#5B6472">Params incl. git commit, metrics</text>
+<text x="890.0" y="494.0" text-anchor="middle" font-size="12.5" fill="#5B6472">Model + full preprocessing recipe</text>
 <text x="890.0" y="724" text-anchor="middle" font-size="12.5" font-weight="600" letter-spacing="0.2" fill="#2E6B8A">Databricks-hosted, no service to run</text>
 
 <!-- Registry lane -->
@@ -77,13 +90,14 @@
 <g transform="translate(1268.0,396.0) scale(1.0)" fill="none" stroke="#A6822E" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10 H21 M10 10 V20 M16 10 V20"/></g>
 <text x="1280.0" y="442.0" text-anchor="middle" font-family="'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Consolas, 'Liberation Mono', monospace" font-size="14" font-weight="600" fill="#1B2333">training_run_registry</text>
 <text x="1280.0" y="462.0" text-anchor="middle" font-size="12.5" fill="#5B6472">Synced from MLflow</text>
-<text x="1280.0" y="478.0" text-anchor="middle" font-size="12.5" fill="#5B6472">run_id + dataset + preproc</text>
+<text x="1280.0" y="478.0" text-anchor="middle" font-size="12.5" fill="#5B6472">Run, dataset, preprocessing, commit</text>
 <text x="1280.0" y="724" text-anchor="middle" font-size="12.5" font-weight="600" letter-spacing="0.2" fill="#A6822E">Synced on demand, not automatic</text>
 
 <!-- Flow arrows -->
 <line x1="268" y1="441.0" x2="332" y2="441.0" stroke="#8B93A3" stroke-width="2" marker-end="url(#arrowHead2)"/>
 <text x="305.0" y="427.0" text-anchor="middle" font-size="12.5" font-weight="600" fill="#1B2333">Train</text>
-<text x="305.0" y="461.0" text-anchor="middle" font-family="'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Consolas, 'Liberation Mono', monospace" font-size="10.5" fill="#5B6472">Databricks</text>
+<text x="305.0" y="461.0" text-anchor="middle" font-family="'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Consolas, 'Liberation Mono', monospace" font-size="10.5" fill="#5B6472">local or</text>
+<text x="305.0" y="474.0" text-anchor="middle" font-family="'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Consolas, 'Liberation Mono', monospace" font-size="10.5" fill="#5B6472">Databricks</text>
 
 <line x1="658" y1="441.0" x2="722" y2="441.0" stroke="#8B93A3" stroke-width="2" marker-end="url(#arrowHead2)"/>
 <text x="695.0" y="427.0" text-anchor="middle" font-size="12.5" font-weight="600" fill="#1B2333">Log run</text>
@@ -98,8 +112,8 @@
 
 <g transform="translate(66.0,816) scale(1.0833333333333333)" fill="none" stroke="#6B4C8A" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5.5" y="11" width="13" height="10" rx="2"/><path d="M8.2 11 V7.7 a3.8 3.8 0 0 1 7.6 0 V11"/></g>
 <text x="106.0" y="832" font-size="15.5" font-weight="700" fill="#1B2333">Reproducibility</text>
-<text x="106.0" y="854" font-size="12.5" fill="#5B6472">Every trained model is traceable to the exact</text>
-<text x="106.0" y="870" font-size="12.5" fill="#5B6472">dataset_version + preprocessing_version it used.</text>
+<text x="106.0" y="854" font-size="12.5" fill="#5B6472">Every trained model is traceable to the exact dataset,</text>
+<text x="106.0" y="870" font-size="12.5" fill="#5B6472">preprocessing recipe and code commit it used.</text>
 
 <line x1="735.0" y1="814" x2="735.0" y2="888" stroke="#E4E1D9" stroke-width="1"/>
 <g transform="translate(761.0,816) scale(1.0833333333333333)" fill="none" stroke="#6B4C8A" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="8" height="8" rx="1.5"/><rect x="14" y="6" width="8" height="8" rx="1.5"/><path d="M10 10 H14"/></g>
