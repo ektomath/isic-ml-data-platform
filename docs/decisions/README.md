@@ -14,8 +14,9 @@ If you only read two, read 006 and 010.
 | [008](008-immutable-source-archives-checksum-verified.md) | Source archives are immutable, and every layer re-verifies checksums | Accepted |
 | [009](009-gold-shard-retention-undecided.md) | How long Gold shard exports are kept is deliberately undecided | Accepted |
 | [010](010-pin-data-and-preprocessing-per-training-run.md) | Each training run pins one dataset version and one preprocessing version | Accepted |
-| [011](011-baseline-training-framework-and-registry-sync.md) | Baseline model is PyTorch ResNet-18; the registry sync is kept apart from Spark | Accepted |
+| [011](011-baseline-training-framework-and-registry-sync.md) | Baseline model is a pretrained PyTorch ResNet-18 | Accepted |
 | [012](012-pin-metadata-feature-config-per-training-run.md) | Metadata feature engineering is pinned per training run too | Accepted |
 | [013](013-record-git-commit-on-releases-and-runs.md) | Gold releases and training runs record their Git commit, and refuse to run without one | Accepted |
+| [014](014-run-lineage-in-mlflow-and-unity-catalog.md) | Training lineage lives in MLflow and Unity Catalog, not a custom registry table | Accepted |
 
 There is no ADR 005; the number was skipped. ADR 007, a general "don't persist copies" principle, was merged into 006 because it mostly restated it.

@@ -4,7 +4,7 @@ Works identically whether invoked as a local CLI/script or from a Databricks not
 (`notebooks/40_train_baseline_classifier.ipynb`) -- the only difference is where `--shards-root` points
 (a `databricks fs cp`'d local directory vs a mounted Databricks Volume, see
 docs/data_contract.md's Gold shard export section) and how MLflow credentials are resolved
-(`ml.mlflow_utils.configure_mlflow_tracking`). See docs/decisions/010 and 011 for the full design.
+(`ml.mlflow_utils.configure_mlflow_tracking`). See docs/decisions/010, 011 and 014 for the full design.
 
 Local CLI usage:
     python -m ml.train --training-run-name sample-v1-resnet18 --shards-root /local/copied/shards
@@ -18,6 +18,11 @@ from pathlib import Path
 import mlflow
 import mlflow.pytorch
 import torch
+from mlflow.data.dataset_source_registry import resolve_dataset_source
+from mlflow.data.delta_dataset_source import DeltaDatasetSource
+from mlflow.data.meta_dataset import MetaDataset
+from mlflow.data.uc_volume_dataset_source import UCVolumeDatasetSource
+from mlflow.models import infer_signature
 from torch import nn
 
 from data_platform.dataset_layout import join_storage_path, load_yaml_config
@@ -91,6 +96,38 @@ def resolve_shards_root(shards_root: str | None, storage_config: dict, dataset_v
     if shards_root is not None:
         return shards_root
     return join_storage_path(storage_config["storage_root"], f"gold/{dataset_version}/shards")
+
+
+DEFAULT_MANIFEST_TABLE = "gold.manifest_rows"
+
+
+def log_training_inputs(dataset_version: str, base_shards_root: str, manifest_table: str) -> None:
+    """Record on the active MLflow run which data it trained on: the Gold release's rows in
+    manifest_table and the shard files actually read. Metadata only, nothing is loaded. This is
+    what links a model back to its Gold release in MLflow and Unity Catalog lineage, in place of
+    a separate registry table (docs/decisions/014-run-lineage-in-mlflow-and-unity-catalog.md)."""
+    manifest = MetaDataset(
+        source=DeltaDatasetSource(delta_table_name=manifest_table), name=f"{manifest_table}@{dataset_version}"
+    )
+    shards_source = (
+        UCVolumeDatasetSource(base_shards_root)
+        if base_shards_root.startswith("/Volumes/")
+        else resolve_dataset_source(base_shards_root)
+    )
+    shards = MetaDataset(source=shards_source, name=f"shards@{dataset_version}")
+    mlflow.log_input(manifest, context="training")
+    mlflow.log_input(shards, context="training")
+
+
+def model_signature(model: nn.Module, image_size: int, device: str):
+    """The input/output signature Unity Catalog requires to register a model: a batch of
+    3 x image_size x image_size float images in, one score per class out. Inferred from a single
+    zero image run through the trained model, so it always matches the model's real shapes."""
+    example_input = torch.zeros(1, 3, image_size, image_size)
+    model.eval()
+    with torch.no_grad():
+        example_output = model(example_input.to(device)).cpu().numpy()
+    return infer_signature(example_input.numpy(), example_output)
 
 
 def check_shards_exist(base_shards_root: str, splits: tuple[str, ...] = ("train", "validation", "test")) -> None:
@@ -271,6 +308,9 @@ def run_training(
     ) as run:
         # The full recipes, not just their names: a recipe file edited in place keeps its name,
         # so the name alone can't prove which preprocessing a model was trained with.
+        log_training_inputs(
+            spec.dataset_version, base_shards_root, storage_config.get("manifest_table", DEFAULT_MANIFEST_TABLE)
+        )
         mlflow.log_dict(spec.preprocessing_config, "preprocessing_config.json")
         if spec.metadata_preprocessing_config is not None:
             mlflow.log_dict(spec.metadata_preprocessing_config, "metadata_preprocessing_config.json")
@@ -315,10 +355,12 @@ def run_training(
         # serialization_format="pickle": mlflow-skinny's default ("pt2") is a traced-graph
         # format requiring a real input_example to trace the model graph through -- pickle
         # needs none of that and is simpler/more reliable for a baseline classifier this size.
+        # Unity Catalog refuses to register a model without a signature.
         mlflow.pytorch.log_model(
             model,
             artifact_path="model",
             serialization_format="pickle",
+            signature=model_signature(model, spec.preprocessing_config["image_size"], resolved_device),
             registered_model_name=resolved_registered_model_name,
         )
 

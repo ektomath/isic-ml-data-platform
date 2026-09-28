@@ -63,7 +63,6 @@ Catalog: derm_showcase_project
   Schema: gold
     Tables:
       manifest_rows
-      training_run_registry
     Views:
       manifest_registry
     Models:
@@ -90,11 +89,12 @@ Each stage is a numbered notebook, run by hand in order today. Scheduling them a
 `dataset_version` (which images) to exactly one `preprocessing_version` (`config/preprocessing/<name>.yaml`
 — resize/normalize/augment, applied only at load time). The same call trains locally or on
 Databricks — only the shard path and MLflow auth resolution differ. Every run logs to MLflow
-(hyperparameters, metrics, the model artifact, and `dataset_version`/`preprocessing_version`/
-`training_run_name` as tags), then `gold.training_run_registry` is synced from MLflow on demand —
-never written to directly, since a local run has no Spark session. See
+(hyperparameters, metrics, the git commit, the full preprocessing recipe, `dataset_version`/
+`preprocessing_version`/`training_run_name` as tags, and the Gold manifest release and shard files
+it read as dataset inputs). The model is logged with a signature and registered in Unity Catalog.
+There's no separate registry table. See
 `docs/decisions/010-pin-data-and-preprocessing-per-training-run.md` and
-`docs/decisions/011-baseline-training-framework-and-registry-sync.md` for the full reasoning.
+`docs/decisions/014-run-lineage-in-mlflow-and-unity-catalog.md` for the full reasoning.
 
 ## Reproducibility rules
 
@@ -102,5 +102,5 @@ never written to directly, since a local run has no Spark session. See
 - Silver and Gold reference the source archive (via `bronze_uri`) rather than duplicating bytes into a table. The one scoped exception, the Gold shard export, is a derived, fully rebuildable cache, never a second source of truth (`docs/decisions/006-stream-archives-no-blob-storage.md`) — how long it's kept around is still undecided (`docs/decisions/009-gold-shard-retention-undecided.md`).
 - Preprocessing is versioned config (`config/preprocessing/<name>.yaml`), applied at training/inference runtime only — never baked into stored bytes (`docs/decisions/010-pin-data-and-preprocessing-per-training-run.md`).
 - Every Gold release is traceable to its source files, source-image checksums, config, seeds and the Git commit of the code that wrote it. Training runs record their commit too, and neither will run without one ([ADR 013](decisions/013-record-git-commit-on-releases-and-runs.md)).
-- Every trained model is traceable to the exact `dataset_version` + `preprocessing_version` it used, via `gold.training_run_registry`.
+- Every trained model is traceable to the exact Gold release, preprocessing recipe and code commit it used, through its MLflow run and its Unity Catalog model version.
 - Fixture tests use only small local files, never the full ISIC dataset.

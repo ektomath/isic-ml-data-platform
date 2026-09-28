@@ -16,7 +16,7 @@ Without the commit, rerunning the same manifest config after a change to the sam
 - **On Databricks**, ask the Databricks Repos API for the current commit of the Git folder the code runs from.
 - **Everywhere else**, use `git rev-parse HEAD`, with `-dirty` appended when the checkout has uncommitted changes, so a recorded commit never claims to be clean code when it wasn't.
 - **No commit, no run.** If neither source works, the lookup raises before any work starts.
-- **Where it's stored:** a `git_commit` column on `gold.manifest_rows` (and summarized in `gold.manifest_registry`), and a `git_commit` MLflow param on every training run, synced into `gold.training_run_registry`.
+- **Where it's stored:** a `git_commit` column on `gold.manifest_rows` (and summarized in `gold.manifest_registry`), and a `git_commit` MLflow param on every training run.
 - **Shards don't get their own commit.** They're raw bytes copied from a manifest and checked against its checksums, so the manifest's commit covers them.
 
 ## Alternatives considered

@@ -93,9 +93,9 @@ A training run is named by one file in [`config/gold/training_runs/`](../config/
 
 1. Reads the shards through `StreamingDataset` and applies the preprocessing recipe at load time only.
 2. Fine-tunes a PyTorch/torchvision ResNet-18.
-3. Logs parameters, per-epoch metrics, final test metrics (balanced accuracy, per-class recall, confusion matrix) and the model itself to MLflow, tagged with the run name, `dataset_version` and `preprocessing_version`.
+3. Logs parameters (including the git commit), per-epoch metrics, final test metrics (balanced accuracy, per-class recall, confusion matrix), the full preprocessing recipe and the model itself to MLflow, tagged with the run name, `dataset_version` and `preprocessing_version`. The Gold manifest release and shard files it read are recorded as the run's dataset inputs.
 
-The same call runs from the Databricks notebook ([`40_train_baseline_classifier`](../notebooks/40_train_baseline_classifier.ipynb)) or from a laptop; only the shard path and MLflow credentials differ. Afterwards, `gold.training_run_registry` is synced from MLflow, giving a table that links every trained model back to its data and preprocessing versions.
+The same call runs from the Databricks notebook ([`40_train_baseline_classifier`](../notebooks/40_train_baseline_classifier.ipynb)) or from a laptop; only the shard path and MLflow credentials differ. When the config names a model, it's registered in Unity Catalog, where each version links back to its run and from there to its data.
 
 ## From archive to model
 
@@ -108,7 +108,7 @@ zip archive in the landing Volume                  (the only copy of the bytes)
   → sampled by whole group and given a split       Gold: manifest_rows
   → streamed again, checksum-verified, packed      Gold: shards per split
   → preprocessed at load time and trained on       Training: MLflow run
-  → linked to its dataset + preprocessing version  Gold: training_run_registry
+  → registered, linked to its run and inputs       Unity Catalog model
 ```
 
 ## Key design decisions

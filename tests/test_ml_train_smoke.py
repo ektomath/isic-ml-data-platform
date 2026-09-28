@@ -144,6 +144,9 @@ def test_run_training_end_to_end_wiring(tmp_path, monkeypatch):
     assert "test_recall_malignant" in run.data.metrics
     assert "train_loss" in run.data.metrics
     assert "validation_loss" in run.data.metrics
+    input_names = {dataset_input.dataset.name for dataset_input in run.inputs.dataset_inputs}
+    assert input_names == {"gold.manifest_rows@smoke-v1", "shards@smoke-v1"}
+    assert mlflow.models.get_model_info(f"runs:/{run_id}/model").signature is not None
     logged_recipe = mlflow.artifacts.load_dict(f"{run.info.artifact_uri}/preprocessing_config.json")
     assert logged_recipe["preprocessing_version"] == "smoke-v1"
     assert logged_recipe["image_size"] == 64

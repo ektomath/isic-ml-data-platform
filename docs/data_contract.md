@@ -14,7 +14,6 @@ The schema of every table and config file the platform writes or reads. This is 
 | `silver.rejected_records` | Silver | Rejected image, with the reason | `dataset_key`, `image_id` |
 | `gold.manifest_rows` | Gold | Image in a training release | `dataset_version`, `dataset_key`, `image_id` |
 | `gold.manifest_registry` (view) | Gold | Training release | `dataset_version` |
-| `gold.training_run_registry` | Gold | MLflow training run | `mlflow_run_id` |
 
 Bronze tables are per dataset because source schemas differ. Silver and Gold tables are shared across datasets and carry a `dataset_key` column, since an `image_id` is only unique within one dataset. Source metadata, Silver and Gold are written with `MERGE INTO` on the keys above, and the image index is rewritten on each run, so reruns don't duplicate rows.
 
@@ -140,19 +139,18 @@ One row per image in a training release. Several releases coexist, keyed by `dat
 
 One row per `dataset_version`, derived from `gold.manifest_rows` by aggregation: which datasets it includes, image and per-split counts, label values, preprocessing versions, seeds, the git commits that wrote it, and first and last write time. Because it's a view, it can't drift out of sync.
 
-### `gold.training_run_registry`
+### Training runs (MLflow, not a table)
 
-One row per MLflow training run. Synced from MLflow on demand by `notebooks/40_train_baseline_classifier.ipynb`, never written by training code directly, since a local run has no Spark session ([ADR 010](decisions/010-pin-data-and-preprocessing-per-training-run.md)).
+Training lineage lives in MLflow and Unity Catalog, not in a project table ([ADR 014](decisions/014-run-lineage-in-mlflow-and-unity-catalog.md)). Every run records:
 
-| Field | Type | Notes |
+| What | Where | Notes |
 |---|---|---|
-| `mlflow_run_id` | string | Key |
-| `training_run_name` | string | From the training-run config |
-| `dataset_version` | string | From the same config |
-| `preprocessing_version` | string | From the same config |
-| `mlflow_experiment_id` | string | MLflow experiment |
-| `created_at` | timestamp | When synced, not when the run started |
-| `git_commit` | string | Commit of the code that ran training, from the run's MLflow params. Empty only for runs logged before it was required |
+| `training_run_name`, `dataset_version`, `preprocessing_version` | Run tags | From the training-run config |
+| Hyperparameters, `git_commit`, device | Run params | `git_commit` is always set ([ADR 013](decisions/013-record-git-commit-on-releases-and-runs.md)) |
+| `<manifest_table>@<dataset_version>` and `shards@<dataset_version>` | Dataset inputs | Metadata only: the Gold manifest release and the shard location the run read |
+| `preprocessing_config.json` (and `metadata_preprocessing_config.json` when set) | Artifacts | The full recipes, not just their names |
+| Metrics, `confusion_matrix.json`, `classification_report.txt` | Metrics and artifacts | Per-epoch and final test metrics |
+| `model` | Artifact | Logged with an input/output signature; registered in Unity Catalog when the config sets `registered_model_name` |
 
 ### Gold shard export
 

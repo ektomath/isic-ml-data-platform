@@ -1,3 +1,6 @@
 # Shared Unity Catalog volume roots.
 landing_root: /Volumes/derm_showcase_project/bronze/landing
 storage_root: /Volumes/derm_showcase_project/bronze/files
+
+# The Gold manifest table training runs record as their input (MLflow log_input).
+manifest_table: derm_showcase_project.gold.manifest_rows
