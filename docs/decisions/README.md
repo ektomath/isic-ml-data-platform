@@ -16,3 +16,4 @@ If you only read two, read 004 and 007.
 | [008](008-baseline-model-resnet18.md) | Baseline model is a pretrained PyTorch ResNet-18 |
 | [009](009-pin-metadata-feature-config-per-training-run.md) | Metadata feature engineering is pinned per training run too |
 | [010](010-record-git-commit-on-releases-and-runs.md) | Gold releases and training runs record their Git commit, and refuse to run without one |
+| [011](011-shared-label-hierarchy.md) | Labels are combined across datasets through one shared hierarchy; each Gold release picks a level (not yet implemented) |
