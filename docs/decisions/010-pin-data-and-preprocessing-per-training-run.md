@@ -13,7 +13,7 @@ One Gold shard export serves any number of preprocessing experiments, which avoi
 ## Decision
 
 1. **A training-run config pins the pairing.** `config/gold/training_runs/<name>.yaml` names one `dataset_version` and one `preprocessing_version`, plus the hyperparameters. Training takes only this config's name, never two separate values, so there's no way to train on an unpinned combination. This follows the project's existing pattern of one versioned config file per thing.
-2. **MLflow records what happened.** Every run, local or on Databricks, logs hyperparameters, metrics, the model and the pairing to the MLflow server built into the Databricks workspace. A local machine reaches it over REST with a personal access token, and needs no Spark session.
+2. **MLflow records what happened.** Every run, local or on Databricks, logs hyperparameters, metrics, the model and the pairing to the MLflow server built into the Databricks workspace. A local machine reaches it over REST with a personal access token, and needs no Spark session. Each run also saves the full preprocessing recipe as an artifact, because a recipe file edited in place keeps its name.
 3. **A registry table is synced from MLflow.** `gold.training_run_registry` gets one row per run, filled from MLflow on demand from a notebook that already has Spark. Training code never writes to it directly. This mirrors `bronze.ingestion_runs`.
 4. **A new Gold release is for a new image selection only.** Shards hold unprocessed bytes, so two releases that differ only in `preprocessing_version` would export identical shards. A new preprocessing experiment is a new training-run config, not a new release.
 

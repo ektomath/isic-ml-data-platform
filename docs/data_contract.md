@@ -184,7 +184,7 @@ Pins one `dataset_version` to one `preprocessing_version`, plus the hyperparamet
 
 ### `config/preprocessing/<name>.yaml`
 
-A reusable image preprocessing recipe, applied only at training and inference time, never to stored bytes ([ADR 001](decisions/001-preprocessing-at-runtime.md)). Loaded by `ml.preprocessing.load_preprocessing_config` and turned into torchvision transforms by `build_transforms`.
+A reusable image preprocessing recipe, applied only at training and inference time, never to stored bytes ([ADR 001](decisions/001-preprocessing-at-runtime.md)). Loaded by `ml.preprocessing.load_preprocessing_config` and turned into torchvision transforms by `build_transforms`. Every training run also saves the full recipe to MLflow as `preprocessing_config.json`. All fields are required except `framework_runtime_notes`.
 
 | Field | Type | Notes |
 |---|---|---|
@@ -193,13 +193,13 @@ A reusable image preprocessing recipe, applied only at training and inference ti
 | `normalization` | `{mean: [3 floats], std: [3 floats]}` | Per-channel, matching the pretrained weights |
 | `resize_policy` | string | Currently only `shorter_side_to_256` |
 | `crop_policy` | `{train: string, eval: string}` | Descriptive; `image_size` is what's actually used |
-| `augmentation` | `{train: {...}, eval: [...]}` | `train` supports `random_horizontal_flip` and `random_rotation_degrees`; `eval` is normally empty |
+| `augmentation` | `{train: {...}, eval: [...]}` | `train` supports `random_horizontal_flip` and `random_rotation_degrees`. `eval` is ignored: validation and test images always get resize, center crop and normalize only |
 | `random_seed` | int | Passed to `torch.manual_seed` |
-| `framework_runtime_notes` | string | Free text describing the transform order |
+| `framework_runtime_notes` | string, optional | Free text describing the transform order |
 
 ### `config/metadata_preprocessing/<name>.yaml`
 
-A versioned recipe for turning exported Bronze metadata into a fixed-length feature vector for a multimodal model ([ADR 012](decisions/012-pin-metadata-feature-config-per-training-run.md)). Columns not listed under `fields` are dropped. Loaded by `ml.metadata_preprocessing.load_metadata_preprocessing_config`; not used by any training run yet.
+A versioned recipe for turning exported Bronze metadata into a fixed-length feature vector for a multimodal model ([ADR 012](decisions/012-pin-metadata-feature-config-per-training-run.md)). Columns not listed under `fields` are dropped. Loaded by `ml.metadata_preprocessing.load_metadata_preprocessing_config`; not used by any training run yet. The only recipe so far, `baseline-v1`, is a template: its category lists haven't been checked against real exported values, and matching is exact and case-sensitive, so a mismatch silently lands in the unknown slot.
 
 | Field | Type | Notes |
 |---|---|---|
@@ -208,7 +208,7 @@ A versioned recipe for turning exported Bronze metadata into a fixed-length feat
 | `fields[].kind` | string | `numeric` or `categorical` |
 | `fields[].missing_value` | float | Numeric only: value used for null or unparseable input |
 | `fields[].categories` | list[string] | Categorical only: fixed vocabulary; order fixes each one-hot slot |
-| `fields[].unknown_category` | string | Categorical only: label for the slot that null or unknown values land in |
+| `fields[].unknown_category` | string | Categorical only: a descriptive name for the extra last slot that null or unrecognized values land in. Required, but the value itself isn't used |
 | `fields[].source_columns` | `{dataset_key: column}`, optional | Per-dataset column name, when datasets name the same field differently |
 | `fields[].value_map` | `{dataset_key: {raw: canonical}}`, optional | Per-dataset value remapping onto the canonical vocabulary |
 

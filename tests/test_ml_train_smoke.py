@@ -1,5 +1,6 @@
 import zipfile
 
+import mlflow
 from mlflow import MlflowClient
 
 from archive_fixtures import checksum as _checksum
@@ -143,6 +144,9 @@ def test_run_training_end_to_end_wiring(tmp_path, monkeypatch):
     assert "test_recall_malignant" in run.data.metrics
     assert "train_loss" in run.data.metrics
     assert "validation_loss" in run.data.metrics
+    logged_recipe = mlflow.artifacts.load_dict(f"{run.info.artifact_uri}/preprocessing_config.json")
+    assert logged_recipe["preprocessing_version"] == "smoke-v1"
+    assert logged_recipe["image_size"] == 64
 
 
 def test_run_training_registers_model_when_registered_model_name_is_set(tmp_path, monkeypatch):

@@ -269,6 +269,11 @@ def run_training(
             "preprocessing_version": spec.preprocessing_version,
         },
     ) as run:
+        # The full recipes, not just their names: a recipe file edited in place keeps its name,
+        # so the name alone can't prove which preprocessing a model was trained with.
+        mlflow.log_dict(spec.preprocessing_config, "preprocessing_config.json")
+        if spec.metadata_preprocessing_config is not None:
+            mlflow.log_dict(spec.metadata_preprocessing_config, "metadata_preprocessing_config.json")
         mlflow.log_params(
             {
                 "architecture": spec.architecture,
