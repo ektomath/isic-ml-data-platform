@@ -1,14 +1,10 @@
 # ISIC ML Data Platform
 
-I set out to build a central data platform that holds many dermatology image datasets side by side and lets you assemble machine learning training sets from any combination of them. Duplicate images can't leak between training and test data, and every training set is reproducible: for any trained ML model you can recreate exactly which images, labels and preprocessing it was trained on. The implementation was designed and tested around two datasets, ISIC 2019 and MILK10k.
+I built this project to test how I would store a growing collection of skin-cancer image datasets, so that I could train classification models on any mix of them. I tried to keep two things in mind: the same image, or images of the same lesion or patient, should never end up in both the training and the test data, and for any model I train, I should be able to rebuild exactly the images, labels and preprocessing it was trained on.
 
-> A portfolio project demonstrating Azure, Databricks, and reproducible computer-vision data engineering.
+Right now the platform holds two datasets from the [ISIC Archive](https://www.isic-archive.com/): ISIC 2019 and MILK10k. Nothing in the design is tied to those two. In principle it could take in every dataset the ISIC Archive hosts, or other public dermatology collections, with a config file and a couple of dataset-specific notebooks for each ([adding a dataset](docs/datasets/README.md)).
 
-The goal it's built around:
-
-> A reviewer can trace a trained model back to an immutable Gold manifest, a validated Silver inventory, and the exact Bronze image checksums used to create it.
-
-Adding a dataset takes a config file, its own Bronze notebooks for the parts that depend on how the source is packaged, and a Silver notebook that is mostly configuration. Checksumming, validation, labeling, leakage grouping and everything in Gold are shared code. See [Datasets](docs/datasets/README.md) for the steps and one page per onboarded dataset.
+It runs on Databricks with a Bronze, Silver and Gold layout. It's a portfolio project, so the docs try to explain why things are built the way they are, not just what they do.
 
 ## Status
 
@@ -57,7 +53,7 @@ A few of the more interesting calls, out of the [full decision log](docs/decisio
 
 ## Lessons learned
 
-**On cloud object storage, the number of operations costs more than the number of bytes.** The first Bronze ingestion extracted every image in the archives into a Unity Catalog Volume as its own file, one cloud write per JPEG. For ISIC 2019's roughly 33,000 images that meant about 33,000 separate writes: a single run took 90 minutes and cost about $17, which is too much to rerun freely on a personal budget. Staging each archive once on local disk and reading images from there brought the run down to 5 minutes and an estimated $6. The design later went further and stopped storing image bytes anywhere except the original archives ([ADR 006](docs/decisions/006-stream-archives-no-blob-storage.md)).
+**On cloud object storage, the number of operations costs more than the number of bytes.** The first Bronze ingestion extracted every image in the archives into a Unity Catalog Volume as its own file, one cloud write per JPEG. For ISIC 2019's roughly 33,000 images that meant about 33,000 separate writes: a single run took 90 minutes and cost about \$17, which is too much to rerun freely on a personal budget. Staging each archive once on local disk and reading images from there brought the run down to 5 minutes and an estimated $6. The design later went further and stopped storing image bytes anywhere except the original archives ([ADR 006](docs/decisions/006-stream-archives-no-blob-storage.md)).
 
 ## Local setup
 
