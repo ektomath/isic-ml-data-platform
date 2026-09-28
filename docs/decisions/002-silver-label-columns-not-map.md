@@ -1,4 +1,4 @@
-# 003. Store labels as named columns on one shared Silver table
+# 002. Store labels as named columns on one shared Silver table
 
 Status: accepted.
 

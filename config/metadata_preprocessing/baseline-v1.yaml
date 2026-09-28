@@ -4,7 +4,7 @@
 # multimodal (image + tabular) model. Loaded/validated by
 # ml.metadata_preprocessing.load_metadata_preprocessing_config, resolved into a runtime transform
 # by ml.metadata_preprocessing.build_metadata_transform. See
-# docs/decisions/012-pin-metadata-feature-config-per-training-run.md for why this exists as a
+# docs/decisions/009-pin-metadata-feature-config-per-training-run.md for why this exists as a
 # versioned config rather than an ad hoc local column selection.
 #
 # A Bronze column not listed under `fields` below is implicitly dropped -- this file *is* the

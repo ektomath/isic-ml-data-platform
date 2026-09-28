@@ -88,7 +88,7 @@ def bronze_image_uri(source_archive_uri, archive_member_path):
     `data_platform.files.parse_bronze_uri` recovers (source_archive_uri, archive_member_path)
     from it, and that pair alone is enough to find the image's bytes in its source archive —
     no Bronze table lookup needed. This has to be true now, since no layer stores image bytes
-    at all (see docs/decisions/006-stream-archives-no-blob-storage.md) — the pointer is the
+    at all (see docs/decisions/004-stream-archives-no-blob-storage.md) — the pointer is the
     only way back to the bytes.
 
     This builds the same string as `data_platform.files.format_bronze_uri`, just as a Spark
@@ -188,7 +188,7 @@ def assert_controlled_vocabularies(df, controlled_vocabularies: dict[str, tuple[
 # No image bytes are ever written here — write_image_index_table streams each
 # archive only to compute checksum/byte_length, and records where the image
 # lives (source_archive_uri + archive_member_path), never the bytes themselves.
-# See docs/decisions/006-stream-archives-no-blob-storage.md.
+# See docs/decisions/004-stream-archives-no-blob-storage.md.
 # ============================================================================
 
 IMAGE_INDEX_SCHEMA = StructType(
@@ -466,7 +466,7 @@ def apply_label_normalization(
     data_platform.labels.MALIGNANCY_VALUES}`). A `label_columns` entry absent
     from this dict (e.g. `specific_diagnosis`) is open-ended free text and is
     never checked — this guards only the label axes meant to be cross-dataset
-    comparable (see docs/decisions/003-silver-label-columns-not-map.md).
+    comparable (see docs/decisions/002-silver-label-columns-not-map.md).
 
     Checked on labeled_df (metadata only, before any image bytes are read), so
     it's cheap. A value outside the vocabulary means
@@ -526,7 +526,7 @@ def validate_images(
 
     No image bytes are ever joined from a Bronze table or persisted anywhere — each
     candidate's bytes are read from its source archive, decoded, and discarded within
-    this function (see docs/decisions/006-stream-archives-no-blob-storage.md). Archive
+    this function (see docs/decisions/004-stream-archives-no-blob-storage.md). Archive
     streaming happens driver-side, the same already-proven access pattern Bronze
     ingestion uses (`write_image_index_table`), rather than distributing byte reads
     across executors.
@@ -536,7 +536,7 @@ def validate_images(
     immediately (does not just reject the affected rows) if any mismatch, since that
     means the source archive changed after ingestion, violating the immutability every
     downstream `bronze_uri` reference depends on, not routine per-row data variance. See
-    docs/decisions/008-immutable-source-archives-checksum-verified.md.
+    docs/decisions/005-immutable-source-archives-checksum-verified.md.
 
     `archives` must be the same list shape `resolve_archive_paths`/
     `stage_archives_and_extract_metadata` already produce elsewhere in this project,
@@ -583,7 +583,7 @@ def validate_images(
     # archive itself changed since Bronze ingestion computed source_checksum, which
     # breaks the immutability invariant every downstream reference (bronze_uri, and
     # eventually a Gold manifest) depends on. See
-    # docs/decisions/008-immutable-source-archives-checksum-verified.md.
+    # docs/decisions/005-immutable-source-archives-checksum-verified.md.
     for candidate_row, archive_row in iter_archive_matches(
         candidates_by_archive_uri, staged_path_by_archive_uri, checksum_mismatches, missing_candidates
     ):
@@ -618,7 +618,7 @@ def validate_images(
             f"reproducibility for anything already built from it. First few: "
             f"{formatted_mismatches[:5]}. Source archives must never change after ingestion; a "
             f"genuine source update needs a new source_version and a fresh ingestion, not an "
-            f"in-place archive edit. See docs/decisions/008-immutable-source-archives-checksum-verified.md."
+            f"in-place archive edit. See docs/decisions/005-immutable-source-archives-checksum-verified.md."
         )
 
     decoded_df = spark.table(scratch_table) if total_decoded else spark.createDataFrame([], schema=DECODE_OUTPUT_SCHEMA)
@@ -865,7 +865,7 @@ def assert_no_cross_dataset_duplicate_checksums(spark, silver_tables: dict, data
     silver.image_inventory rows -- the sound signal for real cross-dataset image duplication.
     patient_id/lesion_id are dataset-issued and deliberately NOT compared here, since they're
     not guaranteed globally unique/consistent across datasets, unlike source_checksum (a
-    SHA-256 of the raw bytes). See docs/decisions/004-cross-dataset-leakage-not-checked.md.
+    SHA-256 of the raw bytes). See docs/decisions/003-cross-dataset-leakage-not-checked.md.
 
     A no-op when dataset_keys has fewer than 2 entries -- cross-dataset duplication is only
     possible once a manifest actually spans more than one dataset_key, matching
@@ -906,7 +906,7 @@ def assert_no_cross_dataset_duplicate_checksums(spark, silver_tables: dict, data
             f"{dataset_keys} -- real cross-dataset duplicates. Left unresolved, the same image "
             f"could land in different splits across its two dataset_key copies -- real "
             f"train/test leakage. First few: {examples}. See "
-            f"docs/decisions/004-cross-dataset-leakage-not-checked.md."
+            f"docs/decisions/003-cross-dataset-leakage-not-checked.md."
         )
 
 
@@ -943,7 +943,7 @@ def write_gold_manifest_rows(
     different preprocessing_version, with no other change, should not also get a
     Gold shard export: write_gold_shards_for_splits writes raw bytes regardless of
     preprocessing_version, so exporting both would just duplicate identical shard
-    bytes for no benefit. See docs/decisions/010-pin-data-and-preprocessing-per-training-run.md.
+    bytes for no benefit. See docs/decisions/007-pin-data-and-preprocessing-per-training-run.md.
 
     created_at is set to the current timestamp on every call, same convention as
     Silver's validated_at — rerunning this for a (dataset_version, dataset_key,
@@ -1038,9 +1038,9 @@ def print_gold_outputs(
 #
 # Shards are a fully rebuildable, derived cache — never a second source of
 # truth for image bytes, same as every other layer in this project — see
-# docs/decisions/006-stream-archives-no-blob-storage.md. Retention itself is
+# docs/decisions/004-stream-archives-no-blob-storage.md. Retention itself is
 # an open question, not decided — see
-# docs/decisions/009-gold-shard-retention-undecided.md.
+# docs/decisions/006-gold-shard-retention-undecided.md.
 # ============================================================================
 
 
@@ -1051,7 +1051,7 @@ def load_manifest_rows_for_export(spark, gold_tables: dict, dataset_version: str
     — no image bytes touched here. source_checksum is carried through so
     `data_platform.shard_export.write_gold_shards_for_splits` can verify each image is
     still what the manifest recorded
-    (docs/decisions/008-immutable-source-archives-checksum-verified.md).
+    (docs/decisions/005-immutable-source-archives-checksum-verified.md).
     Returns {split: [row_dict, ...]}, ready for write_gold_shards_for_splits to stream
     bytes for, one split at a time.
     """
@@ -1089,7 +1089,7 @@ def export_source_metadata_csv(
     dataset), so a multimodal model combining more than one dataset_key's CSV can tell which
     dataset each row came from -- ml.metadata_preprocessing.build_metadata_transform's per-field
     `source_columns`/`value_map` reconciliation keys off exactly this column (see
-    docs/decisions/012-pin-metadata-feature-config-per-training-run.md).
+    docs/decisions/009-pin-metadata-feature-config-per-training-run.md).
 
     Collected to the driver via toPandas() and written with pandas rather than Spark's own CSV
     writer, so destination_path is one real file, not a directory of part-files to reassemble --
@@ -1150,10 +1150,10 @@ def remove_expired_exports(dbutils, gold_root: str, max_age_days: int) -> list[s
 
     General-purpose utility, not wired into any default flow and not scheduled —
     shard retention is an open question, not a decided policy (see
-    docs/decisions/009-gold-shard-retention-undecided.md). Deleting a stale export
+    docs/decisions/006-gold-shard-retention-undecided.md). Deleting a stale export
     costs nothing but a future rerun of 31_export_gold_shards.ipynb to rebuild it, since
     shards are always a derived, fully rebuildable cache
-    (docs/decisions/006-stream-archives-no-blob-storage.md) — but nothing in this
+    (docs/decisions/004-stream-archives-no-blob-storage.md) — but nothing in this
     project currently calls this on any automatic basis. Call it directly, with an
     explicit max_age_days, whenever/if a retention decision actually gets made.
 

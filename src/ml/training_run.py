@@ -3,7 +3,7 @@
 Pure Python, no Spark dependency -- unit-tested locally (see tests/test_ml_training_run.py).
 
 `config/gold/training_runs/<name>.yaml` pins exactly one dataset_version to exactly one
-preprocessing_version (see docs/decisions/010-pin-data-and-preprocessing-per-training-run.md).
+preprocessing_version (see docs/decisions/007-pin-data-and-preprocessing-per-training-run.md).
 `resolve_training_run` is the one place a `training_run_name` turns into everything downstream
 training code needs -- the enforcement point for "the entrypoint accepts only this one name,"
 never free-standing dataset_version/preprocessing_version parameters.
@@ -69,7 +69,7 @@ def resolve_training_run(config_root: str | Path, training_run_name: str) -> Tra
     tabular/text) model can build its metadata feature vector
     (ml.metadata_preprocessing.build_metadata_transform) from a pinned, versioned recipe rather
     than an ad hoc local column selection -- see
-    docs/decisions/012-pin-metadata-feature-config-per-training-run.md.
+    docs/decisions/009-pin-metadata-feature-config-per-training-run.md.
     """
     config = load_training_run_config(config_root, training_run_name)
     preprocessing_config = load_preprocessing_config(config_root, config["preprocessing_version"])

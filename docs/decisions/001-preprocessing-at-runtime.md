@@ -12,7 +12,7 @@ Models differ in the input size and normalization they expect, and trying differ
 
 ## Decision
 
-- Bronze, Silver and Gold never transform pixels. The Gold shard export carries the original encoded bytes ([ADR 006](006-stream-archives-no-blob-storage.md)).
+- Bronze, Silver and Gold never transform pixels. The Gold shard export carries the original encoded bytes ([ADR 004](004-stream-archives-no-blob-storage.md)).
 - Preprocessing is a versioned recipe in `config/preprocessing/<name>.yaml`, turned into transforms when training loads the data.
 
 ## Alternatives considered
@@ -22,4 +22,4 @@ Models differ in the input size and normalization they expect, and trying differ
 ## Consequences
 
 - Decoding and resizing are paid on every training run instead of once.
-- Which preprocessing a model used has to be recorded per training run, not per dataset. [ADR 010](010-pin-data-and-preprocessing-per-training-run.md) does that.
+- Which preprocessing a model used has to be recorded per training run, not per dataset. [ADR 007](007-pin-data-and-preprocessing-per-training-run.md) does that.

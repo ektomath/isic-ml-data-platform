@@ -1,14 +1,14 @@
-# 013. Record the Git commit on every Gold release and training run, and refuse to run without one
+# 010. Record the Git commit on every Gold release and training run, and refuse to run without one
 
 Status: accepted.
 
 ## Summary
 
-A Gold release is decided by its config, its seeds and the code that samples and splits, and a model by its config and the training code. Config and seeds were already recorded, but the code wasn't. Now both Gold releases and training runs record the Git commit of the code that produced them, and fail up front if no commit can be found. The cost is that a run outside a Git checkout or Databricks Git folder can't happen at all, and the Databricks lookup is still unverified.
+A Gold release is decided by its config, its seeds and the code that samples and splits, and a model by its config and the training code. Config and seeds are recorded in the data; the code needs recording too. Both Gold releases and training runs record the Git commit of the code that produced them, and fail up front if no commit can be found. The cost is that a run outside a Git checkout or Databricks Git folder can't happen at all, and the Databricks lookup is still unverified.
 
 ## Context
 
-Without the commit, rerunning the same manifest config after a change to the sampling code quietly produces a different release, and nothing shows why. Training already logged a commit, but it used `git rev-parse`, which almost certainly returns nothing on Databricks serverless, where the repo is a workspace Git folder with no `git` command. A missing value was logged silently.
+Without the commit, rerunning the same manifest config after a change to the sampling code quietly produces a different release, and nothing shows why. Getting the commit isn't trivial on Databricks: `git rev-parse` almost certainly returns nothing on serverless compute, where the repo is a workspace Git folder with no `git` command, and a lookup that quietly returns nothing would record untraceable runs.
 
 ## Decision
 

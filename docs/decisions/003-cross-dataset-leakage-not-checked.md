@@ -1,4 +1,4 @@
-# 004. Cross-dataset patient/lesion leakage is not checked (duplicate images are)
+# 003. Cross-dataset patient/lesion leakage is not checked (duplicate images are)
 
 Status: accepted.
 

@@ -1,4 +1,4 @@
-# 008. Source archives are immutable after ingestion, and that's checked
+# 005. Source archives are immutable after ingestion, and that's checked
 
 Status: accepted.
 
@@ -8,7 +8,7 @@ Every later step re-reads images from the source archives, so an archive changed
 
 ## Context
 
-Since [ADR 006](006-stream-archives-no-blob-storage.md), no layer stores image bytes. A Silver row, a published training release or an exported shard is only reproducible if the archive still holds the same bytes it did at ingestion. If someone re-uploaded an archive or replaced a file in place, those records would quietly point to different images, and nothing would notice.
+Since [ADR 004](004-stream-archives-no-blob-storage.md), no layer stores image bytes. A Silver row, a published training release or an exported shard is only reproducible if the archive still holds the same bytes it did at ingestion. If someone re-uploaded an archive or replaced a file in place, those records would quietly point to different images, and nothing would notice.
 
 Bronze already computes a SHA-256 checksum for every image, and it's carried on every downstream record. Silver and Gold export already re-hash each image as they stream it. That new hash just wasn't being compared.
 

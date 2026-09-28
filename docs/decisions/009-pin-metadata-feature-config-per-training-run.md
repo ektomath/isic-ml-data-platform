@@ -1,4 +1,4 @@
-# 012. Pin metadata feature engineering per training run
+# 009. Pin metadata feature engineering per training run
 
 Status: accepted.
 
@@ -8,7 +8,7 @@ The Gold export can include each image's clinical metadata (age, sex, anatomic s
 
 ## Context
 
-The metadata CSV is an unmodified copy of Bronze rows. A model can't use it as-is: some columns should be dropped, categories need a fixed encoding, and missing numbers need a defined value. If those choices were made in an uncommitted notebook cell, nobody could later tell which metadata a model used or how it was encoded. That's the same gap [ADR 010](010-pin-data-and-preprocessing-per-training-run.md) closed for images.
+The metadata CSV is an unmodified copy of Bronze rows. A model can't use it as-is: some columns should be dropped, categories need a fixed encoding, and missing numbers need a defined value. If those choices were made in an uncommitted notebook cell, nobody could later tell which metadata a model used or how it was encoded. That's the same gap [ADR 007](007-pin-data-and-preprocessing-per-training-run.md) closed for images.
 
 ## Decision
 

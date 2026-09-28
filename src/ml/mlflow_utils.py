@@ -2,7 +2,7 @@
 
 Depends only on `mlflow-skinny` (a REST client, not a tracking server): this project only
 talks to the Databricks-hosted tracking server and never runs its own, so full mlflow's
-server stack isn't needed. See docs/decisions/010-pin-data-and-preprocessing-per-training-run.md
+server stack isn't needed. See docs/decisions/007-pin-data-and-preprocessing-per-training-run.md
 for how runs are tracked. MLflow's own scope
 here is "what happened during training" (hyperparameters, metrics, artifacts) -- it is never the
 source of truth for data/preprocessing identity, which config/gold/training_runs/<name>.yaml owns

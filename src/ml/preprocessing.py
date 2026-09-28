@@ -4,7 +4,7 @@ Pure Python (plus torchvision), no Spark dependency -- unit-tested locally like
 `data_platform.files`/`validate`/`labels`/`sampling` (see tests/test_ml_preprocessing.py).
 
 A preprocessing config (`config/preprocessing/<name>.yaml`) is never applied to stored bytes --
-Gold shards hold raw, undecoded image bytes only (docs/decisions/006-stream-archives-no-blob-storage.md).
+Gold shards hold raw, undecoded image bytes only (docs/decisions/004-stream-archives-no-blob-storage.md).
 This module is the one place a config dict turns into an actual `torchvision.transforms.Compose`,
 applied at training/inference load time only (docs/decisions/001-preprocessing-at-runtime.md).
 """

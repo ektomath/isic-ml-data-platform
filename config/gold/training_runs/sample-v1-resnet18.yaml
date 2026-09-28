@@ -1,8 +1,8 @@
 # Pins exactly one dataset_version to exactly one preprocessing_version for a training run.
 # src/ml/train.py's entrypoint accepts only this one name -- never free-standing
 # dataset_version/preprocessing_version parameters -- so there is no code path to train against
-# an unpinned pairing. See docs/decisions/010-pin-data-and-preprocessing-per-training-run.md and
-# docs/decisions/011-baseline-training-framework-and-registry-sync.md.
+# an unpinned pairing. See docs/decisions/007-pin-data-and-preprocessing-per-training-run.md and
+# docs/decisions/008-baseline-model-resnet18.md.
 
 training_run_name: sample-v1-resnet18
 

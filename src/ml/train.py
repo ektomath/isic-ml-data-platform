@@ -4,7 +4,7 @@ Works identically whether invoked as a local CLI/script or from a Databricks not
 (`notebooks/40_train_baseline_classifier.ipynb`) -- the only difference is where `--shards-root` points
 (a `databricks fs cp`'d local directory vs a mounted Databricks Volume, see
 docs/data_contract.md's Gold shard export section) and how MLflow credentials are resolved
-(`ml.mlflow_utils.configure_mlflow_tracking`). See docs/decisions/010, 011 and 014 for the full design.
+(`ml.mlflow_utils.configure_mlflow_tracking`). See docs/decisions/007 and 008 for the full design.
 
 Local CLI usage:
     python -m ml.train --training-run-name sample-v1-resnet18 --shards-root /local/copied/shards
@@ -57,7 +57,7 @@ _IMAGE_ONLY_ARCHITECTURES = {"resnet18"}
 def check_metadata_preprocessing_is_used(architecture: str, metadata_preprocessing_version: str | None) -> None:
     """Raise if a training-run config pins a metadata_preprocessing_version for an image-only
     architecture. The model would never see those features, so recording the version would
-    claim a provenance the run doesn't have (docs/decisions/012-pin-metadata-feature-config-per-training-run.md)."""
+    claim a provenance the run doesn't have (docs/decisions/009-pin-metadata-feature-config-per-training-run.md)."""
     if metadata_preprocessing_version is not None and architecture in _IMAGE_ONLY_ARCHITECTURES:
         raise ValueError(
             f"Training-run config sets metadata_preprocessing_version={metadata_preprocessing_version!r}, "
@@ -105,7 +105,7 @@ def log_training_inputs(dataset_version: str, base_shards_root: str, manifest_ta
     """Record on the active MLflow run which data it trained on: the Gold release's rows in
     manifest_table and the shard files actually read. Metadata only, nothing is loaded. This is
     what links a model back to its Gold release in MLflow and Unity Catalog lineage, in place of
-    a separate registry table (docs/decisions/014-run-lineage-in-mlflow-and-unity-catalog.md)."""
+    a separate registry table (docs/decisions/007-pin-data-and-preprocessing-per-training-run.md)."""
     manifest = MetaDataset(
         source=DeltaDatasetSource(delta_table_name=manifest_table), name=f"{manifest_table}@{dataset_version}"
     )

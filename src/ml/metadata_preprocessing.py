@@ -8,7 +8,7 @@ reviewable answer to "which Bronze source-metadata fields does this model actual
 are they encoded" -- exactly the kind of decision (drop irrelevant fields, bucket/impute the
 rest) that must never happen as an ad hoc local edit to a downloaded CSV, or a trained model's
 reported metrics stop being traceable back to a reproducible input (see
-docs/decisions/012-pin-metadata-feature-config-per-training-run.md). Mirrors `ml.preprocessing`'s
+docs/decisions/009-pin-metadata-feature-config-per-training-run.md). Mirrors `ml.preprocessing`'s
 role for images: this module is the one place a config dict turns into an actual runtime
 transform, applied at training/inference load time only, never baked into a stored file.
 """
@@ -35,7 +35,7 @@ _REQUIRED_FIELD_SPEC_KEYS_BY_KIND = {
 
 
 # Optional per-field keys, present only for a field that needs cross-dataset reconciliation
-# (docs/decisions/012-pin-metadata-feature-config-per-training-run.md's Decision section
+# (docs/decisions/009-pin-metadata-feature-config-per-training-run.md's Decision section
 # on reconciling datasets): a release combining more than one dataset_key whose raw column names and/or raw
 # values for the "same" conceptual field don't already agree. Both are keyed by dataset_key,
 # and both are no-ops for a dataset_key not listed in them -- a single-dataset config (or a
@@ -107,7 +107,7 @@ def _encode_categorical(raw_value, category_to_index: dict[str, int], vocabulary
 
 def _resolve_raw_value(field: dict, raw_row: dict, dataset_key) -> object:
     """Look up field's value on raw_row, reconciling cross-dataset column-name/value
-    differences first (docs/decisions/012-pin-metadata-feature-config-per-training-run.md's
+    differences first (docs/decisions/009-pin-metadata-feature-config-per-training-run.md's
     Decision section). `source_columns.get(dataset_key, field["name"])` falls back to the
     canonical name when this dataset_key isn't listed (including when raw_row carries no
     "dataset_key" at all, e.g. a single-dataset config/export, matching dataset_key=None to
@@ -141,7 +141,7 @@ def build_metadata_transform(metadata_preprocessing_config: dict) -> Callable[[d
     raw_row's optional "dataset_key" entry (present on every row `export_source_metadata_csv`
     writes) drives per-field `source_columns`/`value_map` reconciliation when a release combines
     more than one dataset_key whose raw columns/values for the "same" conceptual field don't
-    already agree -- see docs/decisions/012-pin-metadata-feature-config-per-training-run.md.
+    already agree -- see docs/decisions/009-pin-metadata-feature-config-per-training-run.md.
     Absent entirely for a single-dataset config, exactly as before that reconciliation existed.
     """
     require_fields(metadata_preprocessing_config, METADATA_PREPROCESSING_REQUIRED_FIELDS, "metadata_preprocessing_config")

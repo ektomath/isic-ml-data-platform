@@ -17,8 +17,6 @@ It runs on Databricks with a Bronze, Silver and Gold layout. It's a portfolio pr
 
 Gold releases and training runs both record the Git commit of the code that produced them, and refuse to run without one. On Databricks the commit is read from the workspace Git folder through the Databricks API; that lookup hasn't been verified on a real workspace yet.
 
-What's next: a first real training run on the `sample-v1` shards, a full-scale Gold release instead of the 200-image sample, and scheduled orchestration (Databricks Jobs) in place of running the notebooks by hand.
-
 ## Architecture
 
 Source archives in a landing volume are the *sole* permanent store of image bytes — nothing is ever extracted to a Volume as an individual file, and no layer stores bytes in a table. Every layer that needs actual pixels streams them from the archive on demand instead:
@@ -46,14 +44,14 @@ New to the project? [How it works](docs/how-it-works.md) is a 10-minute walkthro
 
 A few of the more interesting calls, out of the [full decision log](docs/decisions/):
 
-- [Stream from source archives, never store image bytes anywhere else](docs/decisions/006-stream-archives-no-blob-storage.md) — the central storage decision, after an earlier design ([superseded](docs/decisions/002-store-bronze-images-as-delta-blobs.md)) cost about $17 and 90 minutes per run, one cloud write for each of ~33,000 images (see [Lessons learned](#lessons-learned)).
-- [Verify source-archive immutability by checksum, not assumption](docs/decisions/008-immutable-source-archives-checksum-verified.md) — every layer that streams bytes re-verifies them against what Bronze originally recorded.
-- [Pin exactly which data + preprocessing a training run used](docs/decisions/010-pin-data-and-preprocessing-per-training-run.md) — so a trained model's reported metrics are never just a matter of trusting training-code discipline.
-- [Retention for derived artifacts is an open question, not a default](docs/decisions/009-gold-shard-retention-undecided.md) — a deliberate retraction of an earlier, premature policy.
+- [Stream from source archives, never store image bytes anywhere else](docs/decisions/004-stream-archives-no-blob-storage.md) — the central storage decision, after an earlier design cost about $17 and 90 minutes per run, one cloud write for each of ~33,000 images (see [Lessons learned](#lessons-learned)).
+- [Verify source-archive immutability by checksum, not assumption](docs/decisions/005-immutable-source-archives-checksum-verified.md) — every layer that streams bytes re-verifies them against what Bronze originally recorded.
+- [Pin exactly which data + preprocessing a training run used](docs/decisions/007-pin-data-and-preprocessing-per-training-run.md) — so a trained model's reported metrics are never just a matter of trusting training-code discipline.
+- [Retention for derived artifacts is an open question, not a default](docs/decisions/006-gold-shard-retention-undecided.md) — left undecided on purpose until there's real usage to base it on.
 
 ## Lessons learned
 
-**On cloud object storage, the number of operations costs more than the number of bytes.** The first Bronze ingestion extracted every image in the archives into a Unity Catalog Volume as its own file, one cloud write per JPEG. For ISIC 2019's roughly 33,000 images that meant about 33,000 separate writes: a single run took 90 minutes and cost about \$17, which is too much to rerun freely on a personal budget. Staging each archive once on local disk and reading images from there brought the run down to 5 minutes and an estimated $6. The design later went further and stopped storing image bytes anywhere except the original archives ([ADR 006](docs/decisions/006-stream-archives-no-blob-storage.md)).
+**On cloud object storage, the number of operations costs more than the number of bytes.** The first Bronze ingestion extracted every image in the archives into a Unity Catalog Volume as its own file, one cloud write per JPEG. For ISIC 2019's roughly 33,000 images that meant about 33,000 separate writes: a single run took 90 minutes and cost about \$17, which is too much to rerun freely on a personal budget. Staging each archive once on local disk and reading images from there brought the run down to 5 minutes and an estimated $6. The design later went further and stopped storing image bytes anywhere except the original archives ([ADR 004](docs/decisions/004-stream-archives-no-blob-storage.md)).
 
 ## Local setup
 

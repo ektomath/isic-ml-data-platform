@@ -83,7 +83,7 @@ def iter_archive_image_rows(
     decode; Gold export: keeps it just long enough to write a shard sample). No
     image bytes are ever written back to a Volume or a table by this function
     itself, and none should be persisted by any of its callers either — see
-    docs/decisions/006-stream-archives-no-blob-storage.md.
+    docs/decisions/004-stream-archives-no-blob-storage.md.
 
     `member_predicate`, when given, is checked (by relative in-archive path)
     before bytes are read at all — a caller that only wants a known subset of
@@ -151,7 +151,7 @@ def iter_archive_matches(
     and checksum-verified, streaming each referenced archive exactly once. This is the
     one shared implementation of the archive-matching and checksum-verification pattern
     used both by Silver validation and Gold shard export -- see
-    docs/decisions/008-immutable-source-archives-checksum-verified.md.
+    docs/decisions/005-immutable-source-archives-checksum-verified.md.
 
     A generator, not a list-returning function, on purpose: don't collect it into a
     list if a candidate's `image_bytes` (on the yielded archive_row) should be dropped

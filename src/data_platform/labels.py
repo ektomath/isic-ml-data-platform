@@ -3,7 +3,7 @@ helpers for Silver label columns.
 
 Pure Python, no Spark dependency, unit-tested locally (see tests/test_labels.py).
 Only label axes meant to be cross-dataset comparable belong here — see
-docs/decisions/003-silver-label-columns-not-map.md. `specific_diagnosis` has no
+docs/decisions/002-silver-label-columns-not-map.md. `specific_diagnosis` has no
 canonical vocabulary here and isn't meant to: open-ended free text by design.
 """
 
@@ -18,7 +18,7 @@ MALIGNANCY_VALUES = ("benign", "malignant", "indeterminate")
 
 # The `silver.image_inventory` DDL fragment for the two shared label columns,
 # used by each dataset's 05_setup_tables_and_folders.ipynb guarded
-# `ALTER TABLE ADD COLUMNS` (see docs/decisions/003-silver-label-columns-not-map.md).
+# `ALTER TABLE ADD COLUMNS` (see docs/decisions/002-silver-label-columns-not-map.md).
 # Both isic_2019 and milk10k populate exactly these two columns with the same
 # meaning, so this is one shared constant rather than a dict re-typed verbatim
 # per dataset notebook. A dataset needing a genuinely different label axis

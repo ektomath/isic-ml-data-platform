@@ -20,7 +20,7 @@ Bronze tables are per dataset because source schemas differ. Silver and Gold tab
 ## Conventions
 
 - IDs are stable across pipeline runs.
-- No table stores image bytes, at any layer. The source archives in the landing Volume are the only permanent copy; tables hold checksums and `archive:<source_archive_uri>#<archive_member_path>` locators, and every step that needs pixels streams them from the archive ([ADR 006](decisions/006-stream-archives-no-blob-storage.md)).
+- No table stores image bytes, at any layer. The source archives in the landing Volume are the only permanent copy; tables hold checksums and `archive:<source_archive_uri>#<archive_member_path>` locators, and every step that needs pixels streams them from the archive ([ADR 004](decisions/004-stream-archives-no-blob-storage.md)).
 - Paths are logical storage locations, never local filesystem paths.
 - Tabular outputs are deterministic for a given source snapshot and configuration.
 
@@ -88,11 +88,11 @@ One row per accepted image. Within one run a rejected image never lands here; it
 | `group_id` | string | Leakage-control group (always set) |
 | `validated_at` | timestamp | When validated |
 
-Label columns are real named columns, added with `ALTER TABLE ... ADD COLUMNS` when a new dataset needs a new label, and nullable for datasets that don't have it ([ADR 003](decisions/003-silver-label-columns-not-map.md)). Validation thresholds can differ per dataset (see the [dataset pages](datasets/README.md)).
+Label columns are real named columns, added with `ALTER TABLE ... ADD COLUMNS` when a new dataset needs a new label, and nullable for datasets that don't have it ([ADR 002](decisions/002-silver-label-columns-not-map.md)). Validation thresholds can differ per dataset (see the [dataset pages](datasets/README.md)).
 
 ### `silver.leakage_groups`
 
-Groups images that must never be split across train, validation and test: exact duplicates first (same `source_checksum`), then same lesion, then same patient, otherwise a singleton. Grouping is scoped per dataset, because patient and lesion IDs aren't comparable across sources. Exact duplicate images across datasets are caught separately before Gold sampling ([ADR 004](decisions/004-cross-dataset-leakage-not-checked.md)).
+Groups images that must never be split across train, validation and test: exact duplicates first (same `source_checksum`), then same lesion, then same patient, otherwise a singleton. Grouping is scoped per dataset, because patient and lesion IDs aren't comparable across sources. Exact duplicate images across datasets are caught separately before Gold sampling ([ADR 003](decisions/003-cross-dataset-leakage-not-checked.md)).
 
 | Field | Type | Notes |
 |---|---|---|
@@ -141,12 +141,12 @@ One row per `dataset_version`, derived from `gold.manifest_rows` by aggregation:
 
 ### Training runs (MLflow, not a table)
 
-Training lineage lives in MLflow and Unity Catalog, not in a project table ([ADR 014](decisions/014-run-lineage-in-mlflow-and-unity-catalog.md)). Every run records:
+Training lineage lives in MLflow and Unity Catalog, not in a project table ([ADR 007](decisions/007-pin-data-and-preprocessing-per-training-run.md)). Every run records:
 
 | What | Where | Notes |
 |---|---|---|
 | `training_run_name`, `dataset_version`, `preprocessing_version` | Run tags | From the training-run config |
-| Hyperparameters, `git_commit`, device | Run params | `git_commit` is always set ([ADR 013](decisions/013-record-git-commit-on-releases-and-runs.md)) |
+| Hyperparameters, `git_commit`, device | Run params | `git_commit` is always set ([ADR 010](decisions/010-record-git-commit-on-releases-and-runs.md)) |
 | `<manifest_table>@<dataset_version>` and `shards@<dataset_version>` | Dataset inputs | Metadata only: the Gold manifest release and the shard location the run read |
 | `preprocessing_config.json` (and `metadata_preprocessing_config.json` when set) | Artifacts | The full recipes, not just their names |
 | Metrics, `confusion_matrix.json`, `classification_report.txt` | Metrics and artifacts | Per-epoch and final test metrics |
@@ -154,9 +154,9 @@ Training lineage lives in MLflow and Unity Catalog, not in a project table ([ADR
 
 ### Gold shard export
 
-`notebooks/31_export_gold_shards.ipynb` writes a release's images as MosaicML shards to `<storage_root>/gold/<dataset_version>/shards/<split>/`. Each sample carries `image` (raw encoded bytes), `label`, `image_id`, `dataset_key` and `group_id`. Shards are a rebuildable cache, never a second source of truth ([ADR 006](decisions/006-stream-archives-no-blob-storage.md)); how long they're kept is undecided ([ADR 009](decisions/009-gold-shard-retention-undecided.md)). They're keyed by `dataset_version` only, because the bytes are unprocessed and identical whatever the preprocessing.
+`notebooks/31_export_gold_shards.ipynb` writes a release's images as MosaicML shards to `<storage_root>/gold/<dataset_version>/shards/<split>/`. Each sample carries `image` (raw encoded bytes), `label`, `image_id`, `dataset_key` and `group_id`. Shards are a rebuildable cache, never a second source of truth ([ADR 004](decisions/004-stream-archives-no-blob-storage.md)); how long they're kept is undecided ([ADR 006](decisions/006-gold-shard-retention-undecided.md)). They're keyed by `dataset_version` only, because the bytes are unprocessed and identical whatever the preprocessing.
 
-If the export config sets `export_metadata_csv: true`, the notebook also writes each dataset's Bronze source metadata for the release's images to `<storage_root>/gold/<dataset_version>/metadata/<dataset_key>_source_metadata.csv`, as future input for a multimodal model ([ADR 012](decisions/012-pin-metadata-feature-config-per-training-run.md)). The baseline classifier doesn't read it.
+If the export config sets `export_metadata_csv: true`, the notebook also writes each dataset's Bronze source metadata for the release's images to `<storage_root>/gold/<dataset_version>/metadata/<dataset_key>_source_metadata.csv`, as future input for a multimodal model ([ADR 009](decisions/009-pin-metadata-feature-config-per-training-run.md)). The baseline classifier doesn't read it.
 
 A dataset card for each release is planned but not built yet.
 
@@ -197,7 +197,7 @@ A reusable image preprocessing recipe, applied only at training and inference ti
 
 ### `config/metadata_preprocessing/<name>.yaml`
 
-A versioned recipe for turning exported Bronze metadata into a fixed-length feature vector for a multimodal model ([ADR 012](decisions/012-pin-metadata-feature-config-per-training-run.md)). Columns not listed under `fields` are dropped. Loaded by `ml.metadata_preprocessing.load_metadata_preprocessing_config`; not used by any training run yet. The only recipe so far, `baseline-v1`, is a template: its category lists haven't been checked against real exported values, and matching is exact and case-sensitive, so a mismatch silently lands in the unknown slot.
+A versioned recipe for turning exported Bronze metadata into a fixed-length feature vector for a multimodal model ([ADR 009](decisions/009-pin-metadata-feature-config-per-training-run.md)). Columns not listed under `fields` are dropped. Loaded by `ml.metadata_preprocessing.load_metadata_preprocessing_config`; not used by any training run yet. The only recipe so far, `baseline-v1`, is a template: its category lists haven't been checked against real exported values, and matching is exact and case-sensitive, so a mismatch silently lands in the unknown slot.
 
 | Field | Type | Notes |
 |---|---|---|
@@ -212,7 +212,7 @@ A versioned recipe for turning exported Bronze metadata into a fixed-length feat
 
 ## Rules
 
-- No duplicate physical image copies in any layer, except the Gold shard export, which is a rebuildable cache ([ADR 006](decisions/006-stream-archives-no-blob-storage.md)).
+- No duplicate physical image copies in any layer, except the Gold shard export, which is a rebuildable cache ([ADR 004](decisions/004-stream-archives-no-blob-storage.md)).
 - Every accepted Silver image has an archive locator, a source checksum, and at least one non-null label; rows with no label are rejected.
 - Every Gold row maps back to a `silver.image_inventory` row.
 - Every Gold release is reproducible from the source archives, its manifest config, its seeds and the Git commit recorded on its rows.

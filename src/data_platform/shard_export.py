@@ -13,9 +13,9 @@ consumer of files.py, including plain Bronze ingestion, which never touches
 shards at all.
 
 Shards are a derived, fully rebuildable cache, never a second source of truth
-for image bytes — see docs/decisions/006-stream-archives-no-blob-storage.md.
+for image bytes — see docs/decisions/004-stream-archives-no-blob-storage.md.
 Retention (how long an export is kept around) is a separate, currently
-undecided question — see docs/decisions/009-gold-shard-retention-undecided.md.
+undecided question — see docs/decisions/006-gold-shard-retention-undecided.md.
 """
 
 from __future__ import annotations
@@ -46,7 +46,7 @@ def write_gold_shards_for_splits(
     re-scanning the same archive once per split. No image bytes are persisted anywhere
     except the shard files themselves — each image is read from its source archive,
     written straight into its shard, and discarded (see
-    docs/decisions/006-stream-archives-no-blob-storage.md).
+    docs/decisions/004-stream-archives-no-blob-storage.md).
 
     `rows_by_split` must be `data_platform.spark_io.load_manifest_rows_for_export`'s
     `{split: [row, ...]}` shape (each row: `image_id`, `dataset_key`, `bronze_uri`,
@@ -63,7 +63,7 @@ def write_gold_shards_for_splits(
     per-row data-quality issue, either case means an archive changed or was corrupted
     after this manifest was published, which breaks the manifest's reproducibility
     guarantee outright, not routine data variance. See
-    docs/decisions/008-immutable-source-archives-checksum-verified.md.
+    docs/decisions/005-immutable-source-archives-checksum-verified.md.
     """
     candidates_by_archive_uri: dict[str, dict[str, dict]] = defaultdict(dict)
     for split, rows in rows_by_split.items():
@@ -115,7 +115,7 @@ def write_gold_shards_for_splits(
             f"{formatted_mismatches[:5]}. Source archives must never change after ingestion; a "
             f"genuine source update needs a new source_version, fresh ingestion, and a new Gold "
             f"release, not an in-place archive edit. See "
-            f"docs/decisions/008-immutable-source-archives-checksum-verified.md."
+            f"docs/decisions/005-immutable-source-archives-checksum-verified.md."
         )
 
     if missing_candidates:
