@@ -1,10 +1,10 @@
 # 009. How long Gold shard exports are kept is undecided
 
-Status: accepted. Amends the retention claims in [006](006-stream-archives-no-blob-storage.md) and [007](007-defer-disk-writes-until-unavoidable.md).
+Status: accepted. Amends the retention claim in [006](006-stream-archives-no-blob-storage.md).
 
 ## Summary
 
-ADRs 006 and 007 originally said shard exports should be short-lived and deleted on a schedule. That was decided before there was any real usage to base it on, so it's retracted. Retention is now explicitly open: nothing deletes shards automatically, and a cleanup utility exists for when a policy is chosen. The cost is that exports accumulate until someone deletes them.
+ADR 006 originally said shard exports should be short-lived and deleted on a schedule. That was decided before there was any real usage to base it on, so it's retracted. Retention is now explicitly open: nothing deletes shards automatically, and a cleanup utility exists for when a policy is chosen. The cost is that exports accumulate until someone deletes them.
 
 ## Context
 

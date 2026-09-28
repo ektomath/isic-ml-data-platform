@@ -11,12 +11,11 @@ If you only read two, read 006 and 010.
 | [003](003-silver-label-columns-not-map.md) | Labels are named columns on one shared Silver table | Accepted |
 | [004](004-cross-dataset-leakage-not-checked.md) | Patient/lesion overlap between datasets isn't checked; exact duplicate images are | Accepted |
 | [006](006-stream-archives-no-blob-storage.md) | Stream images from the source archives; store image bytes nowhere else | Accepted |
-| [007](007-defer-disk-writes-until-unavoidable.md) | Don't persist a copy of data until it's unavoidable | Accepted |
 | [008](008-immutable-source-archives-checksum-verified.md) | Source archives are immutable, and every layer re-verifies checksums | Accepted |
 | [009](009-gold-shard-retention-undecided.md) | How long Gold shard exports are kept is deliberately undecided | Accepted |
 | [010](010-pin-data-and-preprocessing-per-training-run.md) | Each training run pins one dataset version and one preprocessing version | Accepted |
-| [011](011-baseline-training-framework-and-registry-sync.md) | Baseline training framework, config shapes, and registry sync | Accepted |
+| [011](011-baseline-training-framework-and-registry-sync.md) | Baseline model is PyTorch ResNet-18; the registry sync is kept apart from Spark | Accepted |
 | [012](012-pin-metadata-feature-config-per-training-run.md) | Metadata feature engineering is pinned per training run too | Accepted |
 | [013](013-record-git-commit-on-releases-and-runs.md) | Gold releases and training runs record their Git commit, and refuse to run without one | Accepted |
 
-There is no ADR 005; the number was skipped.
+There is no ADR 005; the number was skipped. ADR 007, a general "don't persist copies" principle, was merged into 006 because it mostly restated it.

@@ -29,4 +29,5 @@ That solved the cost problem but left the bytes in two places: the archives in t
 
 - Silver validation and shard export each re-read the relevant archives when they run. That's a bounded cost, paid in exchange for never maintaining a second copy of the data.
 - Adopting this meant rerunning Bronze and Silver on the new design and dropping the old blob table. Both were rerun and verified on Databricks for ISIC 2019 and MILK10k.
+- The same principle applies to future work: persist a new copy of data only when there's a concrete, current reason, and as late in the pipeline as possible, treating it as a rebuildable cache. Shard export is the one place that bar is met today, because training needs actual files rather than a Spark session. If reading the archives repeatedly ever becomes the bottleneck, revisit that trade-off, not the principle.
 - Shard export depends on `mosaicml-streaming`, which brings in a heavy dependency tree (`torch`, `torchvision`, cloud SDKs). That's accepted in exchange for not writing a custom shard format.

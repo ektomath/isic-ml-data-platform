@@ -8,7 +8,7 @@ def _real_local_client(tmp_path, monkeypatch) -> MlflowClient:
     # needed, same "real thing, not a mock" convention as every other test in this project.
     # mlflow-skinny==3.15.2 deprecated file:// by default ("maintenance mode", pushing users
     # toward a sqlite:///... backend) -- but sqlite:/// itself needs sqlalchemy, which is part
-    # of full mlflow, not mlflow-skinny (see docs/decisions/011-baseline-training-framework-and-registry-sync.md
+    # of full mlflow, not mlflow-skinny (see ml.mlflow_utils's module docstring
     # for why this project deliberately stays on mlflow-skinny). MLFLOW_ALLOW_FILE_STORE opts
     # back into file:// without pulling in that extra dependency -- test-only, doesn't affect
     # production code, which always uses tracking_uri="databricks"
