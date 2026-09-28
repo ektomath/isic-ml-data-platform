@@ -12,7 +12,7 @@ It runs on Databricks with a Bronze, Silver and Gold layout. It's a portfolio pr
 |---|---|
 | Bronze (ingest and index) | ✅ Run and verified on Databricks for both datasets |
 | Silver (validate and normalize) | ✅ Run and verified on Databricks for both datasets |
-| Gold (manifest and training shards) | ✅ `sample-v1` manifest and shards built on Databricks |
+| Gold (manifest and training shards) | ✅ `sample-v1` manifest and shards built on Databricks. Shards are a few large files per split, each packing many images with their labels, which training streams from |
 | Baseline training | 🟨 Written and smoke-tested locally on tiny fixture shards; never run on Databricks or on the real shards |
 
 Gold releases and training runs both record the Git commit of the code that produced them, and refuse to run without one. On Databricks the commit is read from the workspace Git folder through the Databricks API; that lookup hasn't been verified on a real workspace yet.
@@ -27,40 +27,24 @@ Training pins exactly which data *and* preprocessing a run used, then records it
 
 ![Training and reproducibility flow](docs/assets/architecture-training.svg)
 
-See [`docs/architecture.md`](docs/architecture.md) for the full system layout and Databricks execution model, and [`docs/data_contract.md`](docs/data_contract.md) for every table schema.
-
-New to the project? [How it works](docs/how-it-works.md) is a 10-minute walkthrough of the layers, the data flow, the key decisions and how to run it.
-
-## What's here
-
-- **`src/data_platform/`** — the Bronze/Silver/Gold pipeline: archive streaming, image validation, label normalization, leakage-aware sampling, Spark orchestration.
-- **`src/ml/`** — baseline classifier training (PyTorch/torchvision), designed to run identically from a Databricks notebook or a local script, with MLflow logging and pinned data+preprocessing provenance. Unit-tested locally, not yet run on Databricks.
-- **`config/`** — one versioned YAML file per dataset, Gold manifest, shard export, preprocessing recipe, and training run — never inline values in a notebook.
-- **`notebooks/`** — the numbered pipeline stages (`00` setup → `10` Bronze → `20` Silver → `30`/`31` Gold → `40` training), run manually in sequence.
-- **`tests/`** — fixture-backed checks (real tiny archives/shards/MLflow stores, no mocks) for everything that doesn't require a live Spark session.
-- **`docs/`** — the [walkthrough](docs/how-it-works.md), architecture, data contract, [one page per dataset](docs/datasets/README.md), and [architecture decision records (ADRs)](docs/decisions/): short write-ups of every non-obvious design decision (and why it changed).
+New to the project? [How it works](docs/how-it-works.md) is a short walkthrough of the layers, the data flow and the code, and [Running the pipeline](docs/running.md) covers setup and each notebook in order. Where every file and table lives is in [architecture.md](docs/architecture.md), and every table's columns are in the [data contract](docs/data_contract.md).
 
 ## Key design decisions
 
 A few of the more interesting calls, out of the [full decision log](docs/decisions/):
 
-- [Stream from source archives, never store image bytes anywhere else](docs/decisions/004-stream-archives-no-blob-storage.md) — the central storage decision, after an earlier design cost about $17 and 90 minutes per run, one cloud write for each of ~33,000 images (see [Lessons learned](#lessons-learned)).
+- [Stream from source archives, never store image bytes anywhere else](docs/decisions/004-stream-archives-no-blob-storage.md) — the central storage decision, took ingestion cost down for the two used datasets.
 - [Verify source-archive immutability by checksum, not assumption](docs/decisions/005-immutable-source-archives-checksum-verified.md) — every layer that streams bytes re-verifies them against what Bronze originally recorded.
 - [Pin exactly which data + preprocessing a training run used](docs/decisions/007-pin-data-and-preprocessing-per-training-run.md) — so a trained model's reported metrics are never just a matter of trusting training-code discipline.
 - [Retention for derived artifacts is an open question, not a default](docs/decisions/006-gold-shard-retention-undecided.md) — left undecided on purpose until there's real usage to base it on.
 
 ## Lessons learned
 
-**On cloud object storage, the number of operations costs more than the number of bytes.** The first Bronze ingestion extracted every image in the archives into a Unity Catalog Volume as its own file, one cloud write per JPEG. For ISIC 2019's roughly 33,000 images that meant about 33,000 separate writes: a single run took 90 minutes and cost about \$17, which is too much to rerun freely on a personal budget. Staging each archive once on local disk and reading images from there brought the run down to 5 minutes and an estimated $6. The design later went further and stopped storing image bytes anywhere except the original archives ([ADR 004](docs/decisions/004-stream-archives-no-blob-storage.md)).
+**On cloud object storage, the number of operations costs more than the number of bytes in the short term.** The first Bronze ingestion extracted every image in the archives into a Unity Catalog Volume as its own file, one cloud write per JPEG. For ISIC 2019's roughly 33,000 images that meant about 33,000 separate writes: a single run took 90 minutes and cost about \$17, which is too much to rerun freely on a personal budget. Staging each archive once on local disk and reading images from there brought the run down to 5 minutes and an estimated $6.
 
-## Local setup
+## Getting started
 
-```powershell
-uv venv --python 3.11 .venv
-.venv\Scripts\Activate.ps1
-uv sync --extra dev
-uv run pytest
-```
+The full setup, locally and on Databricks, is in [docs/running.md](docs/running.md).
 
 ## Source data
 
