@@ -61,13 +61,22 @@ def build_dataloader(
     batch_size: int,
     shuffle: bool,
     num_workers: int = 0,
+    shuffle_seed: int | None = None,
 ) -> DataLoader:
     """Build a DataLoader over one split's Gold shards. `num_workers` defaults to 0 (main
     process, no multiprocessing) -- avoids Windows multiprocessing-spawn friction for local
     runs; pass a higher value on a Databricks GPU cluster where parallel loading helps.
     `pin_memory=True` lets the host->device copy in `ml.train._forward_batch` (which passes
-    `non_blocking=True`) overlap with compute on a CUDA device; harmless on CPU-only runs."""
+    `non_blocking=True`) overlap with compute on a CUDA device; harmless on CPU-only runs.
+    `shuffle_seed` sets the shard reader's shuffle order; without it the library's own default
+    seed is used, so pass the recipe's random_seed to make one seed govern the whole run."""
+    streaming_kwargs = {"shuffle_seed": shuffle_seed} if shuffle_seed is not None else {}
     dataset = GoldShardDataset(
-        local=shard_dir, transform=transform, label_to_index=label_to_index, shuffle=shuffle, batch_size=batch_size
+        local=shard_dir,
+        transform=transform,
+        label_to_index=label_to_index,
+        shuffle=shuffle,
+        batch_size=batch_size,
+        **streaming_kwargs,
     )
     return DataLoader(dataset, batch_size=batch_size, num_workers=num_workers, pin_memory=True)

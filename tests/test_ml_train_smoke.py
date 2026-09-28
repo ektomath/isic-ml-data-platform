@@ -6,7 +6,7 @@ from mlflow import MlflowClient
 from archive_fixtures import checksum as _checksum
 from archive_fixtures import jpeg_bytes as _jpeg_bytes
 from data_platform.shard_export import write_gold_shards_for_splits
-from ml.train import run_training
+from ml.train import run_training, shard_digest
 
 # Same Windows urlparse-drive-letter workaround as tests/test_shard_export.py and
 # tests/test_ml_dataset.py -- every test here chdirs into tmp_path and passes relative shard
@@ -144,8 +144,9 @@ def test_run_training_end_to_end_wiring(tmp_path, monkeypatch):
     assert "test_recall_malignant" in run.data.metrics
     assert "train_loss" in run.data.metrics
     assert "validation_loss" in run.data.metrics
-    input_names = {dataset_input.dataset.name for dataset_input in run.inputs.dataset_inputs}
-    assert input_names == {"gold.manifest_rows@smoke-v1", "shards@smoke-v1"}
+    inputs_by_name = {dataset_input.dataset.name: dataset_input.dataset for dataset_input in run.inputs.dataset_inputs}
+    assert set(inputs_by_name) == {"gold.manifest_rows@smoke-v1", "shards@smoke-v1"}
+    assert inputs_by_name["shards@smoke-v1"].digest == shard_digest(shards_root)
     assert mlflow.models.get_model_info(f"runs:/{run_id}/model").signature is not None
     logged_recipe = mlflow.artifacts.load_dict(f"{run.info.artifact_uri}/preprocessing_config.json")
     assert logged_recipe["preprocessing_version"] == "smoke-v1"
@@ -177,3 +178,6 @@ def test_run_training_registers_model_when_registered_model_name_is_set(tmp_path
 
     assert len(versions) == 1
     assert versions[0].run_id == run_id
+    assert versions[0].tags["dataset_version"] == "smoke-v1"
+    assert versions[0].tags["preprocessing_version"] == "smoke-v1"
+    assert versions[0].tags["git_commit"]

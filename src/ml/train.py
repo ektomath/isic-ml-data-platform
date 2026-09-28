@@ -13,6 +13,7 @@ Local CLI usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
 from pathlib import Path
 
 import mlflow
@@ -107,16 +108,53 @@ def log_training_inputs(dataset_version: str, base_shards_root: str, manifest_ta
     what links a model back to its Gold release in MLflow and Unity Catalog lineage, in place of
     a separate registry table (docs/decisions/007-pin-data-and-preprocessing-per-training-run.md)."""
     manifest = MetaDataset(
-        source=DeltaDatasetSource(delta_table_name=manifest_table), name=f"{manifest_table}@{dataset_version}"
+        source=DeltaDatasetSource(
+            delta_table_name=manifest_table, delta_table_version=current_delta_table_version(manifest_table)
+        ),
+        name=f"{manifest_table}@{dataset_version}",
     )
     shards_source = (
         UCVolumeDatasetSource(base_shards_root)
         if base_shards_root.startswith("/Volumes/")
         else resolve_dataset_source(base_shards_root)
     )
-    shards = MetaDataset(source=shards_source, name=f"shards@{dataset_version}")
+    shards = MetaDataset(
+        source=shards_source, name=f"shards@{dataset_version}", digest=shard_digest(base_shards_root)
+    )
     mlflow.log_input(manifest, context="training")
     mlflow.log_input(shards, context="training")
+
+
+def shard_digest(base_shards_root: str, splits: tuple[str, ...] = ("train", "validation", "test")) -> str:
+    """A fingerprint of the exact shard files a run reads: SHA-256 over every split's
+    `index.json`, which lists each shard file with its size and hashes. A later export that
+    rewrites the same folder produces a different digest, so a logged path alone can't hide it."""
+    digest = hashlib.sha256()
+    for split in splits:
+        digest.update(split.encode())
+        digest.update(Path(join_storage_path(base_shards_root, split), "index.json").read_bytes())
+    return digest.hexdigest()[:32]
+
+
+def current_delta_table_version(table_name: str) -> int | None:
+    """The manifest table's current Delta version when a Spark session is active (Databricks),
+    so the logged input pins the table's exact state. None locally, where there's no Spark."""
+    try:
+        from pyspark.sql import SparkSession
+    except ImportError:
+        return None
+    spark = SparkSession.getActiveSession()
+    if spark is None:
+        return None
+    return int(spark.sql(f"DESCRIBE HISTORY {table_name} LIMIT 1").first()["version"])
+
+
+def tag_registered_model_version(model_name: str, version: str, tags: dict[str, str]) -> None:
+    """Copy the run's lineage tags onto its registered model version, so the Unity Catalog model
+    page shows them without opening the MLflow run."""
+    client = mlflow.MlflowClient()
+    for key, value in tags.items():
+        client.set_model_version_tag(model_name, version, key, value)
 
 
 def model_signature(model: nn.Module, image_size: int, device: str):
@@ -288,7 +326,13 @@ def run_training(
     }
     loaders = {
         split: build_dataloader(
-            join_storage_path(base_shards_root, split), transform, label_to_index, spec.batch_size, shuffle=shuffle, num_workers=num_workers
+            join_storage_path(base_shards_root, split),
+            transform,
+            label_to_index,
+            spec.batch_size,
+            shuffle=shuffle,
+            num_workers=num_workers,
+            shuffle_seed=random_seed,
         )
         for split, (transform, shuffle) in split_settings.items()
     }
@@ -356,13 +400,24 @@ def run_training(
         # format requiring a real input_example to trace the model graph through -- pickle
         # needs none of that and is simpler/more reliable for a baseline classifier this size.
         # Unity Catalog refuses to register a model without a signature.
-        mlflow.pytorch.log_model(
+        model_info = mlflow.pytorch.log_model(
             model,
             artifact_path="model",
             serialization_format="pickle",
             signature=model_signature(model, spec.preprocessing_config["image_size"], resolved_device),
             registered_model_name=resolved_registered_model_name,
         )
+        if resolved_registered_model_name is not None:
+            tag_registered_model_version(
+                resolved_registered_model_name,
+                str(model_info.registered_model_version),
+                {
+                    "training_run_name": spec.training_run_name,
+                    "dataset_version": spec.dataset_version,
+                    "preprocessing_version": spec.preprocessing_version,
+                    "git_commit": git_commit,
+                },
+            )
 
         return run.info.run_id
 

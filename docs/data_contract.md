@@ -147,10 +147,10 @@ Training lineage lives in MLflow and Unity Catalog, not in a project table ([ADR
 |---|---|---|
 | `training_run_name`, `dataset_version`, `preprocessing_version` | Run tags | From the training-run config |
 | Hyperparameters, `git_commit`, device | Run params | `git_commit` is always set ([ADR 010](decisions/010-record-git-commit-on-releases-and-runs.md)) |
-| `<manifest_table>@<dataset_version>` and `shards@<dataset_version>` | Dataset inputs | Metadata only: the Gold manifest release and the shard location the run read |
+| `<manifest_table>@<dataset_version>` and `shards@<dataset_version>` | Dataset inputs | Metadata only. The manifest input carries the table's Delta version when run on Databricks; the shards input's digest is a SHA-256 over every split's `index.json`, so it identifies the exact shard files read |
 | `preprocessing_config.json` (and `metadata_preprocessing_config.json` when set) | Artifacts | The full recipes, not just their names |
 | Metrics, `confusion_matrix.json`, `classification_report.txt` | Metrics and artifacts | Per-epoch and final test metrics |
-| `model` | Artifact | Logged with an input/output signature; registered in Unity Catalog when the config sets `registered_model_name` |
+| `model` | Artifact | Logged with an input/output signature; registered in Unity Catalog when the config sets `registered_model_name`, with the run's `training_run_name`, `dataset_version`, `preprocessing_version` and `git_commit` copied onto the model version as tags |
 
 ### Gold shard export
 
@@ -192,7 +192,7 @@ A reusable image preprocessing recipe, applied only at training and inference ti
 | `resize_policy` | string | Currently only `shorter_side_to_256` |
 | `crop_policy` | `{train: string, eval: string}` | Descriptive; `image_size` is what's actually used |
 | `augmentation` | `{train: {...}, eval: [...]}` | `train` supports `random_horizontal_flip` and `random_rotation_degrees`. `eval` is ignored: validation and test images always get resize, center crop and normalize only |
-| `random_seed` | int | Passed to `torch.manual_seed` |
+| `random_seed` | int | Seeds PyTorch and the shard reader's shuffle order |
 | `framework_runtime_notes` | string, optional | Free text describing the transform order |
 
 ### `config/metadata_preprocessing/<name>.yaml`
