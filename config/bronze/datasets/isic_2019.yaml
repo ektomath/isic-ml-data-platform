@@ -4,8 +4,6 @@
 dataset_key: isic_2019
 dataset_name: isic/2019
 source_version: "2019"
-bronze_prefix: isic_2019
-silver_prefix: silver/isic_2019
 archives:
   - source_split: train
     archive_filename: ISIC-2019-train-images.zip

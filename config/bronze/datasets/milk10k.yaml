@@ -9,8 +9,6 @@
 dataset_key: milk10k
 dataset_name: isic/milk10k
 source_version: "milk10k"
-bronze_prefix: milk10k
-silver_prefix: silver/milk10k
 archives:
   - source_split: all
     archive_filename: milk10k.zip

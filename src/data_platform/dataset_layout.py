@@ -89,17 +89,14 @@ def build_layout(dataset_config: dict) -> dict:
       dataset config loaded without merging in `config/storage.yaml` first), else
       `{root, archives, dataset_archive}`: where this dataset's source archives
       land.
-    - `bronze_paths` -- `{root, metadata}`: this dataset's Bronze metadata folder.
-      Always present; every dataset has Bronze.
+    - `bronze_paths` -- `{root, metadata}`: this dataset's Bronze folder, named after
+      its `dataset_key`, and the metadata folder inside it.
     - `bronze_tables` -- `{source_metadata, image_index, ingestion_runs}`, this
       dataset's two Bronze tables plus the shared `bronze.ingestion_runs`. Always
       present.
-    - `silver_tables` -- `None` if `dataset_config` has no `silver_prefix` set
-      (a dataset not yet wired up to Silver), else `{image_inventory,
-      leakage_groups, rejected_records}` -- the three shared, not
-      dataset-prefixed, Silver tables (same three strings for every dataset;
-      `silver_prefix`'s only role is this presence/absence gate, not building
-      the values). There is no `silver_paths` -- Silver is table-only, no Volume
+    - `silver_tables` -- `{image_inventory, leakage_groups, rejected_records}`, the
+      three shared, not dataset-prefixed, Silver tables (the same for every
+      dataset). There is no `silver_paths` -- Silver is table-only, no Volume
       folders (`docs/architecture.md`).
 
     Gold is not part of this layout at all, on purpose: a Gold release
@@ -109,17 +106,11 @@ def build_layout(dataset_config: dict) -> dict:
     everything above can. `notebooks/30_create_gold_manifest.ipynb` and
     `notebooks/31_export_gold_shards.ipynb` build their own small
     `GOLD_TABLES = {"manifest_rows": "gold.manifest_rows"}` dict inline instead
-    of calling this function for it. (An earlier version of this function did
-    return `gold_paths`/`gold_tables`, gated on a now-removed `gold_prefix`
-    dataset-config field -- always `None` in practice, since Gold never ended
-    up scoped per-dataset, and its content had drifted from how Gold actually
-    works by the time it was removed. Nothing referenced it.)
+    of calling this function for it.
     """
     dataset_key = dataset_config["dataset_key"]
     landing_root = dataset_config.get("landing_root")
     storage_root = dataset_config["storage_root"]
-    bronze_prefix = dataset_config["bronze_prefix"]
-    silver_prefix = dataset_config.get("silver_prefix")
 
     return {
         "landing_paths": None
@@ -130,17 +121,15 @@ def build_layout(dataset_config: dict) -> dict:
             "dataset_archive": join_storage_path(landing_root, f"archives/{dataset_key}"),
         },
         "bronze_paths": {
-            "root": join_storage_path(storage_root, bronze_prefix),
-            "metadata": join_storage_path(storage_root, f"{bronze_prefix}/metadata"),
+            "root": join_storage_path(storage_root, dataset_key),
+            "metadata": join_storage_path(storage_root, f"{dataset_key}/metadata"),
         },
         "bronze_tables": {
             "source_metadata": f"bronze.{dataset_key}_source_metadata",
             "image_index": f"bronze.{dataset_key}_image_index",
             "ingestion_runs": "bronze.ingestion_runs",
         },
-        "silver_tables": None
-        if silver_prefix is None
-        else {
+        "silver_tables": {
             "image_inventory": "silver.image_inventory",
             "leakage_groups": "silver.leakage_groups",
             "rejected_records": "silver.rejected_records",
