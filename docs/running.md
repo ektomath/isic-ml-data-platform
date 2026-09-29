@@ -2,26 +2,6 @@
 
 How to set the project up and run it, notebook by notebook. For what each step does and why, see [architecture.md](architecture.md).
 
-## Locally: tests and training
-
-Requires Python 3.11 and [`uv`](https://docs.astral.sh/uv/). The first `uv sync` downloads PyTorch, so it takes a few minutes.
-
-```bash
-uv sync --extra dev   # --extra dev also installs pytest
-uv run pytest
-```
-
-The tests build their own tiny archives and shards and never download ISIC data. `tests/test_ml_train_smoke.py` runs the full training path end to end on CPU.
-
-To train locally on a real release, copy its shards down from Databricks and point the entrypoint at them. Run this from a git checkout: training refuses to start without a commit to record.
-
-```bash
-databricks fs cp -r dbfs:/Volumes/isic_ml_data_platform/bronze/files/gold/sample-v1/shards ./shards
-uv run python -m ml.train --training-run-name sample-v1-resnet18 --shards-root ./shards
-```
-
-MLflow credentials come from `~/.databrickscfg`, or from `DATABRICKS_HOST` and `DATABRICKS_TOKEN`.
-
 ## On Databricks
 
 ### One-time setup
@@ -72,7 +52,27 @@ The manifest config sets the datasets, label column, sample size, seeds and spli
 |---|---|---|
 | [`40_train_baseline_classifier`](../notebooks/40_train_baseline_classifier.ipynb) | `TRAINING_RUN_NAME`, pointing at a file in [`config/gold/training_runs/`](../config/gold/training_runs/) | An MLflow run and, if the config sets `registered_model_name`, a new model version in Unity Catalog |
 
-Its serverless environment needs `torch`, `torchvision`, `mlflow-skinny` and `scikit-learn`. To try other hyperparameters or another preprocessing recipe, add a new training-run config rather than editing values in place.
+Its serverless environment needs `torch`, `torchvision`, `mlflow-skinny` and `scikit-learn`. To try other hyperparameters or another preprocessing recipe, add a new training-run config rather than editing values in place. To train on your own machine instead, see [Locally](#locally-tests-and-training-on-your-own-machine) below.
+
+## Locally: tests, and training on your own machine
+
+Requires Python 3.11 and [`uv`](https://docs.astral.sh/uv/). The first `uv sync` downloads PyTorch, so it takes a few minutes.
+
+```bash
+uv sync --extra dev   # --extra dev also installs pytest
+uv run pytest
+```
+
+The tests build their own tiny archives and shards and never download ISIC data. `tests/test_ml_train_smoke.py` runs the full training path end to end on CPU.
+
+To train locally on a real release, copy its shards down from Databricks and point the entrypoint at them. Run this from a git checkout: training refuses to start without a commit to record.
+
+```bash
+databricks fs cp -r dbfs:/Volumes/isic_ml_data_platform/bronze/files/gold/sample-v1/shards ./shards
+uv run python -m ml.train --training-run-name sample-v1-resnet18 --shards-root ./shards
+```
+
+MLflow credentials come from `~/.databrickscfg`, or from `DATABRICKS_HOST` and `DATABRICKS_TOKEN`.
 
 ## Adding a dataset
 
