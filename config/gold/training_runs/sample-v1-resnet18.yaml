@@ -29,4 +29,4 @@ mlflow_experiment: /Shared/isic_ml_data_platform/baseline_training
 # always being logged to the run itself), so different architectures/hyperparameters trained
 # over time accumulate as versions of one named model instead of only being addressable by
 # run_id. Omit to log the model without registering it.
-registered_model_name: derm_showcase_project.gold.baseline_classifier
+registered_model_name: isic_ml_data_platform.gold.baseline_classifier

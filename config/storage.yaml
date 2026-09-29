@@ -1,6 +1,10 @@
+# The Unity Catalog catalog everything lives in. Notebook 00 creates it if it doesn't exist.
+# The paths and table name below must use the same catalog; this is checked on load.
+catalog: isic_ml_data_platform
+
 # Shared Unity Catalog volume roots.
-landing_root: /Volumes/derm_showcase_project/bronze/landing
-storage_root: /Volumes/derm_showcase_project/bronze/files
+landing_root: /Volumes/isic_ml_data_platform/bronze/landing
+storage_root: /Volumes/isic_ml_data_platform/bronze/files
 
 # The Gold manifest table training runs record as their input (MLflow log_input).
-manifest_table: derm_showcase_project.gold.manifest_rows
+manifest_table: isic_ml_data_platform.gold.manifest_rows

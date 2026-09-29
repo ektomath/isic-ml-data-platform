@@ -27,6 +27,22 @@ def load_yaml_config(path: str | Path) -> dict:
         return yaml.safe_load(handle)
 
 
+def load_storage_config(config_root: str | Path) -> dict:
+    """Load config/storage.yaml and check that its Volume paths and manifest table all sit in
+    the catalog it names, so the catalog can be renamed by editing that one file."""
+    config = load_yaml_config(Path(config_root) / "storage.yaml")
+    catalog = config["catalog"]
+    mismatched = [
+        key
+        for key, prefix in (("landing_root", f"/Volumes/{catalog}/"), ("storage_root", f"/Volumes/{catalog}/"),
+                            ("manifest_table", f"{catalog}."))
+        if key in config and not str(config[key]).startswith(prefix)
+    ]
+    if mismatched:
+        raise ValueError(f"config/storage.yaml: {mismatched} don't use catalog {catalog!r}")
+    return config
+
+
 def load_dataset_config(path: str | Path) -> dict:
     """Load one dataset's config file (config/bronze/datasets/<dataset>.yaml).
 

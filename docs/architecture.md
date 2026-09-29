@@ -26,7 +26,7 @@ plus the image's SHA-256 checksum, recorded once at ingestion. Any step that nee
 
 ![Bronze/Silver/Gold data pipeline](assets/architecture.svg)
 
-Everything lives in one Unity Catalog catalog (`derm_showcase_project`) with a schema per layer. Each dataset has its own config file in [`config/bronze/datasets/`](../config/bronze/datasets/) and its own short set of notebooks; the pipeline logic itself is shared.
+Everything lives in one Unity Catalog catalog (`isic_ml_data_platform`) with a schema per layer. Each dataset has its own config file in [`config/bronze/datasets/`](../config/bronze/datasets/) and its own short set of notebooks; the pipeline logic itself is shared.
 
 ### Bronze: record the source as it arrived
 
@@ -103,11 +103,11 @@ Every table's columns are in [data_contract.md](data_contract.md).
 ### Files: two Unity Catalog Volumes
 
 ```text
-/Volumes/derm_showcase_project/bronze/landing/
+/Volumes/isic_ml_data_platform/bronze/landing/
   archives/
     isic_2019/          source zip archives, the only copy of image bytes
     milk10k/
-/Volumes/derm_showcase_project/bronze/files/
+/Volumes/isic_ml_data_platform/bronze/files/
   isic_2019/
     metadata/           metadata CSVs extracted from each archive
   milk10k/
@@ -125,7 +125,7 @@ Silver has no folders; it's tables only.
 ### Tables: one catalog, a schema per layer
 
 ```text
-Catalog: derm_showcase_project
+Catalog: isic_ml_data_platform
   Schema: bronze
     Tables:
       ingestion_runs

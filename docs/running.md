@@ -16,7 +16,7 @@ The tests build their own tiny archives and shards and never download ISIC data.
 To train locally on a real release, copy its shards down from Databricks and point the entrypoint at them. Run this from a git checkout: training refuses to start without a commit to record.
 
 ```bash
-databricks fs cp -r dbfs:/Volumes/derm_showcase_project/bronze/files/gold/sample-v1/shards ./shards
+databricks fs cp -r dbfs:/Volumes/isic_ml_data_platform/bronze/files/gold/sample-v1/shards ./shards
 uv run python -m ml.train --training-run-name sample-v1-resnet18 --shards-root ./shards
 ```
 
@@ -28,19 +28,25 @@ MLflow credentials come from `~/.databrickscfg`, or from `DATABRICKS_HOST` and `
 
 1. You need a workspace with Unity Catalog and serverless notebooks, and the source archives downloaded from the [ISIC Archive](https://www.isic-archive.com/) under their licence terms.
 2. Import the repository as a **Databricks Git folder**. Every notebook finds the repo's code and configs from there, and Gold and training read the current commit from it.
-3. Run [`00_setup_storage_and_shared_tables`](../notebooks/00_setup_storage_and_shared_tables.ipynb). It creates the `derm_showcase_project` catalog, the `bronze`, `silver` and `gold` schemas, the landing and files Volumes, and the tables shared by every dataset. It's safe to rerun.
+3. Run [`00_setup_storage_and_shared_tables`](../notebooks/00_setup_storage_and_shared_tables.ipynb). You don't need to create anything by hand first: it creates the catalog, the `bronze`, `silver` and `gold` schemas, the landing and files Volumes, and the tables shared by every dataset. It's safe to rerun.
 
-Paths and table names come from [`config/storage.yaml`](../config/storage.yaml) and the per-dataset configs, never from values typed into a notebook.
+The catalog is named once, in [`config/storage.yaml`](../config/storage.yaml) (`isic_ml_data_platform`), and every path and table name comes from that file and the per-dataset configs, never from values typed into a notebook. Creating a catalog needs the `CREATE CATALOG` permission and a default storage location on the workspace's metastore. If your workspace doesn't allow that, create a catalog with the configured name by hand and notebook 00 will use it.
 
-### Per dataset: Bronze and Silver
+### Per dataset: upload the archives, then Bronze and Silver
 
 Each dataset has three notebooks in `notebooks/<dataset>/`, run in order. The examples use `isic_2019`; `milk10k` is the same.
 
-| Notebook | Before running | What it produces |
-|---|---|---|
-| `05_setup_tables_and_folders` | Nothing | The dataset's Bronze tables and folders. Its last cell prints where to upload the archives |
-| `10_bronze_ingest` | Upload the archives listed in `config/bronze/datasets/<dataset>.yaml` to `/Volumes/derm_showcase_project/bronze/landing/archives/<dataset>/` | `bronze.<dataset>_image_index`, `bronze.<dataset>_source_metadata` and a row in `bronze.ingestion_runs` |
-| `20_silver_validate` | Bronze has run | This dataset's rows in `silver.image_inventory`, `silver.leakage_groups` and `silver.rejected_records` |
+1. Run `05_setup_tables_and_folders`. It creates the dataset's Bronze tables and folders, and its last cell prints the landing folder for the archives.
+2. **Upload the dataset's zip archives** to that folder, `/Volumes/isic_ml_data_platform/bronze/landing/archives/<dataset>/`, keeping their original file names:
+
+   | Dataset | Archives to upload |
+   |---|---|
+   | `isic_2019` | `ISIC-2019-train-images.zip`, `ISIC-2019-test-images.zip` |
+   | `milk10k` | `milk10k.zip` |
+
+   The expected names are listed in `config/bronze/datasets/<dataset>.yaml`, and the next notebook stops with an error if one is missing.
+3. Run `10_bronze_ingest`. It produces `bronze.<dataset>_image_index`, `bronze.<dataset>_source_metadata` and a row in `bronze.ingestion_runs`.
+4. Run `20_silver_validate`. It produces this dataset's rows in `silver.image_inventory`, `silver.leakage_groups` and `silver.rejected_records`.
 
 Each notebook ends with a review cell that prints row counts, rejection reasons and label distributions. Look at those before moving on.
 
