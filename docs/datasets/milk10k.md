@@ -7,7 +7,7 @@ The MILK10k release, downloaded from the [ISIC Archive](https://www.isic-archive
 | Config | [`config/bronze/datasets/milk10k.yaml`](../../config/bronze/datasets/milk10k.yaml) |
 | Notebooks | [`notebooks/milk10k/`](../../notebooks/milk10k/) |
 | `source_version` | `milk10k`, a provisional label until a real release tag is known |
-| Archives | `milk10k.zip` (split `all`), with a `metadata.csv` |
+| Archives | `milk10k.zip` (split `all`, [download](https://api.isic-archive.com/collections/425/)), with a `metadata.csv` |
 | Status | Bronze and Silver run and verified on Databricks |
 
 ## Bronze metadata columns
