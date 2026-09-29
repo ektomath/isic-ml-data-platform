@@ -1,8 +1,8 @@
 # ISIC ML Data Platform
 
-I built this project to test how I would store a growing collection of skin-cancer image datasets, so that I could train classification models on any mix of them. I tried to keep two things in mind: the same image, or images of the same lesion or patient, should never end up in both the training and the test data, and for any model I train, I should be able to rebuild exactly the images, labels and preprocessing it was trained on.
+I wanted to explore how I would store and catalog large numbers of skin-cancer image datasets for ML training using Databricks, so that I could train classification models on any mix of them. I tried to keep two things in mind: the same image, or images of the same lesion or patient, should never end up in both the training and the test data, and for any model I train, I should be able to rebuild exactly the images, labels and preprocessing it was trained on.
 
-Right now the platform holds two datasets from the [ISIC Archive](https://www.isic-archive.com/): ISIC 2019 and MILK10k. Nothing in the design is tied to those two. In principle it could take in every dataset the ISIC Archive hosts, or other public dermatology collections, with a config file and a couple of dataset-specific notebooks for each ([adding a dataset](docs/datasets/README.md)).
+So far it has been tested with two datasets from the [ISIC Archive](https://www.isic-archive.com/): ISIC 2019 and MILK10k. The data itself isn't in this repository, and nothing in the design is tied to those two. In principle it could take in every dataset the ISIC Archive hosts, or other public dermatology collections, with a config file and a couple of dataset-specific notebooks for each ([adding a dataset](docs/datasets/README.md)).
 
 It runs on Databricks with a Bronze, Silver and Gold layout. It's a portfolio project, so the docs try to explain why things are built the way they are, not just what they do.
 
