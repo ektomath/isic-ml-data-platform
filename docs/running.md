@@ -44,7 +44,7 @@ Each notebook ends with a review cell that prints row counts, rejection reasons 
 | [`30_create_gold_manifest`](../notebooks/30_create_gold_manifest.ipynb) | `MANIFEST_NAME`, pointing at a file in [`config/gold/manifests/`](../config/gold/manifests/) | The release's rows in `gold.manifest_rows`, with splits and the git commit |
 | [`31_export_gold_shards`](../notebooks/31_export_gold_shards.ipynb) | `EXPORT_NAME`, pointing at a file in [`config/gold/exports/`](../config/gold/exports/) | Shards under `gold/<dataset_version>/shards/<split>/`, plus per-dataset metadata CSVs if `export_metadata_csv: true` |
 
-The manifest config sets the datasets, label column, sample size, seeds and split ratios. To build a different release, add a new YAML file there rather than editing the notebook. The export notebook's serverless environment needs `mosaicml-streaming==0.13.0`. Both notebooks fail loudly if a leakage group spans two splits or a shard count doesn't match the manifest.
+The manifest config sets the datasets, label column, sample size, seeds and split ratios. To build a different release, add a new YAML file there rather than editing the notebook. Both notebooks fail loudly if a leakage group spans two splits or a shard count doesn't match the manifest.
 
 ### Training
 
@@ -52,7 +52,7 @@ The manifest config sets the datasets, label column, sample size, seeds and spli
 |---|---|---|
 | [`40_train_baseline_classifier`](../notebooks/40_train_baseline_classifier.ipynb) | `TRAINING_RUN_NAME`, pointing at a file in [`config/gold/training_runs/`](../config/gold/training_runs/) | An MLflow run and, if the config sets `registered_model_name`, a new model version in Unity Catalog |
 
-Its serverless environment needs `torch`, `torchvision`, `mlflow-skinny` and `scikit-learn`. To try other hyperparameters or another preprocessing recipe, add a new training-run config rather than editing values in place. To train on your own machine instead, see [Locally](#locally-tests-and-training-on-your-own-machine) below.
+Its first cell installs PyTorch and the other training packages, which takes a few minutes. To try other hyperparameters or another preprocessing recipe, add a new training-run config rather than editing values in place. To train on your own machine instead, see [Locally](#locally-tests-and-training-on-your-own-machine) below.
 
 ## Locally: tests, and training on your own machine
 
