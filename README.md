@@ -27,7 +27,7 @@ Training pins exactly which data *and* preprocessing a run used, then records it
 
 ![Training and reproducibility flow](docs/assets/architecture-training.svg)
 
-New to the project? [How it works](docs/how-it-works.md) is a short walkthrough of the layers, the data flow and the code, and [Running the pipeline](docs/running.md) covers setup and each notebook in order. Where every file and table lives is in [architecture.md](docs/architecture.md), and every table's columns are in the [data contract](docs/data_contract.md).
+New to the project? [Architecture](docs/architecture.md) walks through the layers, the data flow, where every file and table lives, and the code. [Running the pipeline](docs/running.md) covers setup and each notebook in order, and every table's columns are in the [data contract](docs/data_contract.md).
 
 ## Key design decisions
 

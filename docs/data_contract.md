@@ -1,6 +1,6 @@
 # Data Contract
 
-The schema of every table and config file the platform writes or reads. This is reference material. For how the pieces fit together, start with [how-it-works.md](how-it-works.md).
+The schema of every table and config file the platform writes or reads. This is reference material. For how the pieces fit together, start with [architecture.md](architecture.md).
 
 ## At a glance
 

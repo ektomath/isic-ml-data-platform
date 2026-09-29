@@ -1,6 +1,6 @@
 # Running the pipeline
 
-How to set the project up and run it, notebook by notebook. For what each step does and why, see [how-it-works.md](how-it-works.md).
+How to set the project up and run it, notebook by notebook. For what each step does and why, see [architecture.md](architecture.md).
 
 ## Locally: tests and training
 
