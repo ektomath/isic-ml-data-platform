@@ -14,5 +14,4 @@ data/
 artifacts/
 .idea/
 docs/assets/*Copy*.svg
-migrate_image_blobs_to_index.sql
 

@@ -39,7 +39,7 @@ Everything lives in one Unity Catalog catalog (`isic_ml_data_platform`) with a s
 
 The logic lives in [`src/data_platform/spark_io.py`](../src/data_platform/spark_io.py) and runs in this order:
 
-1. **Reconcile.** Any indexed image with no metadata row is rejected, so orphan images can't slip through.
+1. **Reconcile.** An indexed image with no metadata row, or a metadata row whose image isn't in the archive, is rejected, so nothing unmatched slips through.
 2. **Normalize labels** ([`labels.py`](../src/data_platform/labels.py)):
    - `malignancy`: `benign`, `malignant` or `indeterminate`. The vocabulary is enforced: a mapping that produces any other value fails the whole run.
    - `specific_diagnosis`: the most specific diagnosis available, kept as free text.
@@ -167,11 +167,11 @@ Every stage is a numbered notebook. They run by hand, or as Databricks jobs defi
 | [`src/data_platform/provenance.py`](../src/data_platform/provenance.py) | Finding the git commit, locally or on Databricks |
 | [`src/data_platform/spark_io.py`](../src/data_platform/spark_io.py) | The Spark side of Bronze, Silver and Gold |
 | [`src/ml/`](../src/ml/) | Training: config resolution, preprocessing, dataset, metrics, MLflow |
-| [`config/`](../config/) | One YAML per dataset, manifest, export, preprocessing recipe and training run |
+| [`config/`](../config/) | One YAML per dataset, release manifest, preprocessing recipe and training run |
 | [`notebooks/`](../notebooks/) | Thin, numbered Databricks notebooks that call the code above in order |
 | [`tests/`](../tests/) | Tests on tiny real archives, shards and MLflow stores; no ISIC data needed |
 
-Everything except `spark_io.py` is plain Python, so it's unit-tested locally and in GitHub Actions CI on every push.
+Everything except `spark_io.py` is plain Python and unit-tested directly; `spark_io.py`'s transformations are tested on a local Spark session. All of it runs in GitHub Actions CI on every push.
 
 ## Further reading
 

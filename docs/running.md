@@ -50,7 +50,7 @@ The manifest config sets the datasets, label column, sample size, seeds and spli
 
 | Notebook | Setting to change | What it produces |
 |---|---|---|
-| [`40_train_baseline_classifier`](../notebooks/40_train_baseline_classifier.ipynb) | `TRAINING_RUN_NAME`, pointing at a file in [`config/gold/training_runs/`](../config/gold/training_runs/) | An MLflow run and, if the config sets `registered_model_name`, a new model version in Unity Catalog |
+| [`40_train_baseline_classifier`](../notebooks/40_train_baseline_classifier.ipynb) | `training_run_name`, naming a file in [`config/gold/training_runs/`](../config/gold/training_runs/) | An MLflow run and, if the config sets `registered_model_name`, a new model version in Unity Catalog |
 
 Its first cell installs PyTorch and the other training packages, which takes a few minutes. To try other hyperparameters or another preprocessing recipe, add a new training-run config rather than editing values in place. To train on your own machine instead, see [Locally](#locally-tests-and-training-on-your-own-machine) below.
 

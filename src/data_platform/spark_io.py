@@ -369,35 +369,31 @@ GROUP_SOURCE_BY_TYPE = {
 
 
 def reconcile_bronze_records(spark, bronze_tables: dict, rejections: Rejections):
-    """Reject any Bronze image index row with no matching source metadata row.
-
-    An orphan index row is otherwise invisible to every downstream check, since the
-    rest of the pipeline only ever looks from metadata to the index, never the other
-    way. Returns the loaded Bronze source metadata DataFrame.
+    """Match Bronze's image index and source metadata both ways and reject what doesn't match: an
+    indexed image with no metadata row, and a metadata row whose image isn't in the archive.
+    Returns the metadata rows that have an image; later steps only ever start from those.
     """
     source_metadata_df = spark.table(bronze_tables["source_metadata"])
-
-    image_index_keys_df = spark.table(bronze_tables["image_index"]).select(
+    image_index_df = spark.table(bronze_tables["image_index"]).select(
         "image_id", "source_split", "source_archive_uri", "archive_member_path"
     )
-    metadata_keys_df = source_metadata_df.select("image_id", "source_split")
-
-    orphan_index_rows_df = (
-        image_index_keys_df
-        .join(metadata_keys_df, on=["image_id", "source_split"], how="left_anti")
-        .withColumn(
-            "bronze_uri",
-            bronze_image_uri(F.col("source_archive_uri"), F.col("archive_member_path")),
-        )
-    )
+    keys = ["image_id", "source_split"]
 
     rejections.add(
-        orphan_index_rows_df,
+        image_index_df.join(source_metadata_df.select(*keys), on=keys, how="left_anti").withColumn(
+            "bronze_uri", bronze_image_uri(F.col("source_archive_uri"), F.col("archive_member_path"))
+        ),
         F.lit("no matching Bronze source metadata"),
-        description="Bronze image index rows with no matching source metadata (rejected)",
+        description="Indexed images with no source metadata (rejected)",
+    )
+    rejections.add(
+        source_metadata_df.join(image_index_df.select(*keys), on=keys, how="left_anti"),
+        F.lit("no matching image in the source archive"),
+        bronze_uri_col="source_uri",
+        description="Source metadata rows with no image in the archive (rejected)",
     )
 
-    return source_metadata_df
+    return source_metadata_df.join(image_index_df.select(*keys), on=keys, how="left_semi")
 
 
 def apply_label_normalization(

@@ -25,6 +25,7 @@ from data_platform.spark_io import (  # noqa: E402
     assign_leakage_groups,
     build_accepted_rows,
     build_manifest_rows,
+    reconcile_bronze_records,
     sql_string,
     validate_images,
     write_source_metadata,
@@ -272,3 +273,26 @@ def test_write_source_metadata_rejects_a_duplicate_key_before_writing(spark):
 
     with pytest.raises(ValueError, match=r"\('a', 'train', 2\)"):
         write_source_metadata(spark, source_metadata_df, "never_written")
+
+
+def test_reconcile_bronze_records_rejects_unmatched_rows_in_both_directions(spark):
+    spark.createDataFrame(
+        [("a", "train", "archive:x.zip#a.jpg"), ("no_image", "train", None)],
+        "image_id STRING, source_split STRING, source_uri STRING",
+    ).createOrReplaceTempView("reconcile_metadata")
+    spark.createDataFrame(
+        [("a", "train", "x.zip", "a.jpg"), ("no_metadata", "train", "x.zip", "no_metadata.jpg")],
+        "image_id STRING, source_split STRING, source_archive_uri STRING, archive_member_path STRING",
+    ).createOrReplaceTempView("reconcile_index")
+    rejections = Rejections("isic_2019")
+
+    matched_df = reconcile_bronze_records(
+        spark, {"source_metadata": "reconcile_metadata", "image_index": "reconcile_index"}, rejections
+    )
+
+    assert [row["image_id"] for row in matched_df.collect()] == ["a"]
+    reasons = {row["image_id"]: row["rejection_reason"] for row in rejections.to_dataframe(spark).collect()}
+    assert reasons == {
+        "no_metadata": "no matching Bronze source metadata",
+        "no_image": "no matching image in the source archive",
+    }
