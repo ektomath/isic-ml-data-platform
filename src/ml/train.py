@@ -31,6 +31,7 @@ from torch import nn
 from data_platform.dataset_layout import join_storage_path, load_yaml_config
 from ml.dataset import build_dataloader, label_to_index_map
 from ml.metrics import compute_classification_metrics
+from data_platform import configure_logging
 from data_platform.provenance import resolve_git_commit
 from ml.mlflow_utils import configure_mlflow_tracking, configure_model_registry
 from ml.preprocessing import build_transforms
@@ -459,6 +460,7 @@ def run_training(
 
 
 def main(argv: list[str] | None = None) -> None:
+    configure_logging()
     args = parse_args(argv)
     run_id = run_training(
         training_run_name=args.training_run_name,

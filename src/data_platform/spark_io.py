@@ -33,6 +33,7 @@ back instead, which works everywhere including serverless.
 
 from __future__ import annotations
 
+import logging
 import functools
 import time
 from collections import defaultdict
@@ -60,6 +61,8 @@ from data_platform.files import (
     parse_bronze_uri,
 )
 from data_platform.validate import MAX_DIMENSION, MIN_DIMENSION, decode_batch
+
+logger = logging.getLogger(__name__)
 
 # ============================================================================
 # Shared (Bronze + Silver) — generic plumbing, not tied to either layer
@@ -152,7 +155,7 @@ class Rejections:
         )
         self._frames.append(rejected_df)
         if description:
-            print(f"{description}: {rejected_df.count()}")
+            logger.info(f"{description}: {rejected_df.count()}")
 
     def to_dataframe(self, spark):
         """Every rejection added so far, as one DataFrame in the rejected_records shape."""
@@ -258,7 +261,7 @@ def write_image_index_table(spark, archives: list[dict], target_table: str):
                 f"No files matched known image suffixes {sorted(IMAGE_SUFFIXES)} in "
                 f"{archive['archive_filename']}; archive contains file types: {suffix_counts}"
             )
-        print(f"Indexed {archive_row_count} images for {archive['source_split']}")
+        logger.info(f"Indexed {archive_row_count} images for {archive['source_split']}")
 
     (
         spark.createDataFrame(index_rows, schema=IMAGE_INDEX_SCHEMA)
@@ -266,7 +269,7 @@ def write_image_index_table(spark, archives: list[dict], target_table: str):
         .option("overwriteSchema", "true")
         .saveAsTable(target_table)
     )
-    print(f"Images indexed: {len(index_rows)}")
+    logger.info(f"Images indexed: {len(index_rows)}")
 
     return spark.table(target_table).select(
         F.col("image_id"),
@@ -497,7 +500,7 @@ def apply_label_normalization(
         description="Rows with no resolvable label (rejected)",
     )
 
-    print(f"Rows with at least one resolvable label: {label_valid_df.count()}")
+    logger.info(f"Rows with at least one resolvable label: {label_valid_df.count()}")
 
     return label_valid_df
 
@@ -620,8 +623,8 @@ def validate_images(
         description="Images failing decode/dimension validation (rejected)",
     )
 
-    print(f"Candidate images decoded: {decoded_df.count()}")
-    print(f"Images passing validation: {image_valid_df.count()}")
+    logger.info(f"Candidate images decoded: {decoded_df.count()}")
+    logger.info(f"Images passing validation: {image_valid_df.count()}")
 
     return image_valid_df
 
@@ -736,8 +739,8 @@ def write_silver_dataset(
     overwrite_where(spark, image_inventory_df, silver_tables["image_inventory"], predicate)
     overwrite_where(spark, rejections.to_dataframe(spark), silver_tables["rejected_records"], predicate)
 
-    print(f"Accepted images written to image_inventory: {image_inventory_df.count()}")
-    print(f"Leakage-control groups: {leakage_groups_df.count()}")
+    logger.info(f"Accepted images written to image_inventory: {image_inventory_df.count()}")
+    logger.info(f"Leakage-control groups: {leakage_groups_df.count()}")
 
 
 def print_silver_outputs(
@@ -989,7 +992,7 @@ def write_gold_release(
 
     written = spark.table(manifest_table).where(F.col("dataset_version") == dataset_version)
     for row in written.groupBy("dataset_key").count().collect():
-        print(f"{row['dataset_key']}: {row['count']} manifest rows in dataset_version={dataset_version!r}")
+        logger.info(f"{row['dataset_key']}: {row['count']} manifest rows in dataset_version={dataset_version!r}")
 
 
 def print_gold_outputs(

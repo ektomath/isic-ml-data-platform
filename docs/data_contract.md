@@ -62,8 +62,8 @@ One row per ingestion run, shared across datasets.
 | `dataset_name` | string | Example: `isic/2019` |
 | `source_version` | string | Source release identifier, from the dataset config |
 | `started_at`, `finished_at` | timestamp | Run start and end |
-| `status` | string | Always `success` today: a failed run raises before writing a row |
-| `records_seen` | integer | Currently written equal to `records_written`; records seen before filtering aren't counted separately |
+| `status` | string | `success` or `failed`; a failed run still writes its row, then raises |
+| `records_seen` | integer | Metadata rows read, before rows without a matching image are dropped |
 | `records_written` | integer | Rows written |
 
 ## Silver

@@ -152,13 +152,14 @@ def test_is_image_file_uses_known_image_suffixes():
     assert not is_image_file(Path("metadata.csv"))
 
 
-def test_check_archives_exist_passes_when_all_archives_present(tmp_path, capsys):
+def test_check_archives_exist_passes_when_all_archives_present(tmp_path, caplog):
     archive_path = tmp_path / "archive.zip"
     archive_path.write_bytes(b"stub")
 
-    check_archives_exist([{"archive_local_path": archive_path, "archive_dbfs_path": "landing/archive.zip"}])
+    with caplog.at_level("INFO", logger="data_platform"):
+        check_archives_exist([{"archive_local_path": archive_path, "archive_dbfs_path": "landing/archive.zip"}])
 
-    assert "present" in capsys.readouterr().out
+    assert "present" in caplog.text
 
 
 def test_check_archives_exist_raises_on_missing_archive(tmp_path):

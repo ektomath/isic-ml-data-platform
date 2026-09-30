@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import hashlib
 import shutil
 import zipfile
@@ -9,6 +10,8 @@ from pathlib import Path
 from typing import Callable, Iterator
 
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png"}
+
+logger = logging.getLogger(__name__)
 
 
 def stage_archive_locally(archive_path: Path, local_root: Path, overwrite: bool = False) -> Path:
@@ -229,7 +232,7 @@ def check_archives_exist(archives: list[dict]) -> None:
     for archive in archives:
         if not archive["archive_local_path"].exists():
             raise FileNotFoundError(f"Missing archive: {archive['archive_dbfs_path']}")
-    print("All required source archives are present.")
+    logger.info("All required source archives are present.")
 
 
 def stage_archives_and_extract_metadata(
@@ -260,6 +263,6 @@ def stage_archives_and_extract_metadata(
                 f"extracted {len(extracted_metadata_files)}"
             )
         archive["metadata_target_path"] = str(extracted_metadata_files[0])
-        print(f"Staged archive locally: {archive['staged_archive_path']}")
-        print(f"Copied metadata file into Bronze metadata: {archive['metadata_target_path']}")
+        logger.info(f"Staged archive locally: {archive['staged_archive_path']}")
+        logger.info(f"Copied metadata file into Bronze metadata: {archive['metadata_target_path']}")
     return archives
