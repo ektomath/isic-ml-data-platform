@@ -200,6 +200,31 @@ def iter_archive_matches(
         missing_candidates.extend(member_to_candidate[member] for member in remaining_members)
 
 
+def raise_on_checksum_mismatches(checksum_mismatches: list[dict], expected_source: str) -> None:
+    """Raise if any streamed image no longer matches its recorded checksum (as collected by
+    iter_archive_matches): the source archive changed after the checksum was recorded, which
+    breaks reproducibility for everything built from it
+    (docs/decisions/005-immutable-source-archives-checksum-verified.md). `expected_source` names
+    where the expected checksum came from, for the error message."""
+    if not checksum_mismatches:
+        return
+    examples = [
+        {
+            "image_id": mismatch["candidate"]["image_id"],
+            "archive_member_path": mismatch["archive_member_path"],
+            "expected_checksum": mismatch["expected_checksum"],
+            "actual_checksum": mismatch["actual_checksum"],
+        }
+        for mismatch in checksum_mismatches[:5]
+    ]
+    raise RuntimeError(
+        f"{len(checksum_mismatches)} image(s) no longer match {expected_source}: the source "
+        f"archive changed after that, which breaks reproducibility. First few: {examples}. "
+        f"Source archives must never change; a genuine update needs a new source_version and a "
+        f"fresh ingestion. See docs/decisions/005-immutable-source-archives-checksum-verified.md."
+    )
+
+
 def check_archives_exist(archives: list[dict]) -> None:
     """Raise FileNotFoundError if any archive's local landing path is missing.
 

@@ -20,12 +20,16 @@ undecided question — see docs/decisions/006-gold-shard-retention-undecided.md.
 
 from __future__ import annotations
 
+import shutil
 from collections import defaultdict
 from contextlib import ExitStack
+from pathlib import Path
 
 from streaming import MDSWriter
 
-from data_platform.files import iter_archive_matches, parse_bronze_uri
+from data_platform.files import iter_archive_matches, parse_bronze_uri, raise_on_checksum_mismatches
+
+PARTIAL_SUFFIX = ".partial"
 
 GOLD_SHARD_COLUMNS = {"image": "bytes", "label": "str", "image_id": "str", "dataset_key": "str", "group_id": "str"}
 
@@ -57,6 +61,12 @@ def write_gold_shards_for_splits(
     notebook's job, same staging step Bronze/Silver already do). `shard_dir_by_split`
     gives each split's own output directory.
 
+    Shards are written to a `<split dir>.partial` folder next to each split's final folder,
+    and only moved into place once every split has been written and verified. If anything
+    fails, the partial folders are deleted and any previous export is left untouched, so a
+    split folder with an `index.json` (what training looks for) is always a complete, verified
+    export.
+
     Raises if any manifest row can't be found in its source archive, or if a found
     image's freshly-computed checksum doesn't match `source_checksum` already recorded
     on the manifest row — unlike Silver's reject-and-continue handling of a normal
@@ -74,57 +84,52 @@ def write_gold_shards_for_splits(
     sample_counts: dict[str, int] = defaultdict(int)
     checksum_mismatches: list[dict] = []
     missing_candidates: list[dict] = []
+    partial_dir_by_split = {split: shard_dir_by_split[split] + PARTIAL_SUFFIX for split in rows_by_split}
 
-    with ExitStack() as writer_stack:
-        writer_by_split = {
-            split: writer_stack.enter_context(
-                MDSWriter(
-                    out=shard_dir_by_split[split], columns=GOLD_SHARD_COLUMNS, size_limit=size_limit_bytes, exist_ok=True
+    try:
+        for partial_dir in partial_dir_by_split.values():
+            shutil.rmtree(partial_dir, ignore_errors=True)
+
+        with ExitStack() as writer_stack:
+            writer_by_split = {
+                split: writer_stack.enter_context(
+                    MDSWriter(out=partial_dir, columns=GOLD_SHARD_COLUMNS, size_limit=size_limit_bytes, exist_ok=True)
                 )
-            )
-            for split in rows_by_split
-        }
-        for candidate_row, archive_row in iter_archive_matches(
-            candidates_by_archive_uri, staged_path_by_archive_uri, checksum_mismatches, missing_candidates
-        ):
-            writer_by_split[candidate_row["split"]].write(
-                {
-                    "image": archive_row["image_bytes"],
-                    "label": candidate_row["label"],
-                    "image_id": candidate_row["image_id"],
-                    "dataset_key": candidate_row["dataset_key"],
-                    "group_id": candidate_row["group_id"],
-                }
-            )
-            sample_counts[candidate_row["split"]] += 1
-
-    if checksum_mismatches:
-        formatted_mismatches = [
-            {
-                "image_id": mismatch["candidate"]["image_id"],
-                "archive_member_path": mismatch["archive_member_path"],
-                "expected_checksum": mismatch["expected_checksum"],
-                "actual_checksum": mismatch["actual_checksum"],
+                for split, partial_dir in partial_dir_by_split.items()
             }
-            for mismatch in checksum_mismatches
-        ]
-        raise RuntimeError(
-            f"{len(checksum_mismatches)} image(s) no longer match the checksum recorded on "
-            f"their manifest row -- the source archive changed after this manifest was "
-            f"published, which breaks its reproducibility guarantee. First few: "
-            f"{formatted_mismatches[:5]}. Source archives must never change after ingestion; a "
-            f"genuine source update needs a new source_version, fresh ingestion, and a new Gold "
-            f"release, not an in-place archive edit. See "
-            f"docs/decisions/005-immutable-source-archives-checksum-verified.md."
-        )
+            for candidate_row, archive_row in iter_archive_matches(
+                candidates_by_archive_uri, staged_path_by_archive_uri, checksum_mismatches, missing_candidates
+            ):
+                writer_by_split[candidate_row["split"]].write(
+                    {
+                        "image": archive_row["image_bytes"],
+                        "label": candidate_row["label"],
+                        "image_id": candidate_row["image_id"],
+                        "dataset_key": candidate_row["dataset_key"],
+                        "group_id": candidate_row["group_id"],
+                    }
+                )
+                sample_counts[candidate_row["split"]] += 1
 
-    if missing_candidates:
-        missing_image_ids = [candidate["image_id"] for candidate in missing_candidates]
-        raise RuntimeError(
-            f"{len(missing_image_ids)} manifest row(s) missing from their source archive, "
-            f"first few: {missing_image_ids[:5]}. A published gold.manifest_rows release "
-            "should always be fully resolvable back to its source archives."
-        )
+        raise_on_checksum_mismatches(checksum_mismatches, "the checksum recorded on their manifest row")
+        if missing_candidates:
+            missing_image_ids = [candidate["image_id"] for candidate in missing_candidates]
+            raise RuntimeError(
+                f"{len(missing_image_ids)} manifest row(s) missing from their source archive, "
+                f"first few: {missing_image_ids[:5]}. A published gold.manifest_rows release "
+                "should always be fully resolvable back to its source archives."
+            )
+    except BaseException:
+        for partial_dir in partial_dir_by_split.values():
+            shutil.rmtree(partial_dir, ignore_errors=True)
+        raise
+
+    # Every split verified: swap each finished export into place.
+    for split, partial_dir in partial_dir_by_split.items():
+        final_dir = shard_dir_by_split[split]
+        shutil.rmtree(final_dir, ignore_errors=True)
+        Path(final_dir).parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(partial_dir, final_dir)
 
     return {
         split: {"sample_count": sample_counts.get(split, 0), "shard_dir": shard_dir_by_split[split]}

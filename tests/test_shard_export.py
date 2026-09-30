@@ -135,3 +135,35 @@ def test_write_gold_shards_for_splits_raises_on_missing_image(tmp_path, monkeypa
         assert "missing from their source archive" in str(error)
     else:
         raise AssertionError("Expected a missing image to raise")
+
+
+def test_failed_export_keeps_the_previous_export_and_leaves_no_partial_files(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    image_a = b"image-a-bytes"
+    archive_path = _build_archive(tmp_path, {"a.jpg": image_a})
+    good_row = {
+        "image_id": "a",
+        "dataset_key": "isic_2019",
+        "bronze_uri": "archive:dbfs:/landing/archive.zip#a.jpg",
+        "source_checksum": _checksum(image_a),
+        "label": "benign",
+        "group_id": "g1",
+    }
+    export_args = {
+        "staged_path_by_archive_uri": {"dbfs:/landing/archive.zip": archive_path},
+        "shard_dir_by_split": {"train": "shards/train"},
+        "size_limit_bytes": 1 << 26,
+    }
+    write_gold_shards_for_splits({"train": [good_row]}, **export_args)
+    previous_index = (tmp_path / "shards" / "train" / "index.json").read_bytes()
+
+    bad_row = {**good_row, "source_checksum": _checksum(b"different-bytes-entirely")}
+    try:
+        write_gold_shards_for_splits({"train": [bad_row]}, **export_args)
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError("Expected a checksum mismatch to raise")
+
+    assert (tmp_path / "shards" / "train" / "index.json").read_bytes() == previous_index
+    assert not (tmp_path / "shards" / "train.partial").exists()
