@@ -15,7 +15,7 @@ The schema of every table and config file the platform writes or reads. This is 
 | `gold.manifest_rows` | Gold | Image in a training release | `dataset_version`, `dataset_key`, `image_id` |
 | `gold.manifest_registry` (view) | Gold | Training release | `dataset_version` |
 
-Bronze tables are per dataset because source schemas differ. Silver and Gold tables are shared across datasets and carry a `dataset_key` column, since an `image_id` is only unique within one dataset. Source metadata, Silver and Gold are written with `MERGE INTO` on the keys above, and the image index is rewritten on each run, so reruns don't duplicate rows.
+Bronze tables are per dataset because source schemas differ. Silver and Gold tables are shared across datasets and carry a `dataset_key` column, since an `image_id` is only unique within one dataset. Reruns never leave stale rows: the image index is rewritten in one write per ingestion, a Silver run replaces its dataset's rows in all three Silver tables (Delta `replaceWhere` on `dataset_key`), and a Gold release is written in one replace of its `dataset_version`. A published release is immutable: rebuilding it fails unless the manifest notebook's `OVERWRITE_EXISTING_RELEASE` is set. Bronze source metadata is still merged on its key.
 
 ## Conventions
 
@@ -70,7 +70,7 @@ One row per ingestion run, shared across datasets.
 
 ### `silver.image_inventory`
 
-One row per accepted image. Within one run a rejected image never lands here; it goes to `silver.rejected_records` instead. Both tables are upserted and never cleared, so an image whose outcome changes between runs can end up in both until the stale row is removed.
+One row per accepted image. A rejected image never lands here; it goes to `silver.rejected_records` instead. Each Silver run replaces its dataset's rows in both tables, so an image is always in exactly one of them.
 
 | Field | Type | Notes |
 |---|---|---|

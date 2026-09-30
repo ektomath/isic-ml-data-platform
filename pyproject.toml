@@ -23,6 +23,11 @@ dependencies = [
 dev = [
   "pytest",
 ]
+# For tests/test_spark_io.py, which runs the Spark transformations on a local SparkSession
+# (also needs Java). Databricks provides its own Spark, so the pipeline itself never installs this.
+spark = [
+  "pyspark>=3.5,<4",
+]
 
 [tool.setuptools]
 package-dir = {"" = "src"}

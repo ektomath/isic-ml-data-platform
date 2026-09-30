@@ -44,7 +44,7 @@ Each notebook ends with a review cell that prints row counts, rejection reasons 
 | [`30_create_gold_manifest`](../notebooks/30_create_gold_manifest.ipynb) | `MANIFEST_NAME`, pointing at a file in [`config/gold/manifests/`](../config/gold/manifests/) | The release's rows in `gold.manifest_rows`, with splits and the git commit |
 | [`31_export_gold_shards`](../notebooks/31_export_gold_shards.ipynb) | `EXPORT_NAME`, pointing at a file in [`config/gold/exports/`](../config/gold/exports/) | Shards under `gold/<dataset_version>/shards/<split>/`, plus per-dataset metadata CSVs if `export_metadata_csv: true` |
 
-The manifest config sets the datasets, label column, sample size, seeds and split ratios. To build a different release, add a new YAML file there rather than editing the notebook. Both notebooks fail loudly if a leakage group spans two splits or a shard count doesn't match the manifest.
+The manifest config sets the datasets, label column, sample size, seeds and split ratios. To build a different release, add a new YAML file there rather than editing the notebook. A published release can't be rebuilt by accident: notebook 30 stops if the `dataset_version` already exists, unless you set `OVERWRITE_EXISTING_RELEASE = True`. Changing a release's selection should normally mean a new `dataset_version`. Both notebooks fail loudly if a leakage group spans two splits or a shard count doesn't match the manifest.
 
 ### Training
 

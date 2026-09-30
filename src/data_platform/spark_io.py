@@ -55,6 +55,7 @@ from data_platform.files import (
     count_zip_members_by_suffix,
     format_bronze_uri,
     iter_archive_image_rows,
+    raise_on_checksum_mismatches,
     iter_archive_matches,
     parse_bronze_uri,
 )
@@ -65,19 +66,27 @@ from data_platform.validate import MAX_DIMENSION, MIN_DIMENSION, decode_batch
 # ============================================================================
 
 
-def merge_into(spark, df, target_table: str, key_columns: list[str], view_name: str = "staged_merge_source") -> None:
-    """Upsert df into target_table via MERGE INTO, matched on key_columns."""
-    df.createOrReplaceTempView(view_name)
-    on_clause = " AND ".join(f"target.{column} = source.{column}" for column in key_columns)
-    spark.sql(
-        f"""
-        MERGE INTO {target_table} AS target
-        USING {view_name} AS source
-        ON {on_clause}
-        WHEN MATCHED THEN UPDATE SET *
-        WHEN NOT MATCHED THEN INSERT *
-        """
+def sql_string(value: str) -> str:
+    """Quote value as a SQL string literal, for the replaceWhere predicates below."""
+    return "'" + value.replace("'", "''") + "'"
+
+
+def overwrite_where(spark, df, target_table: str, predicate: str) -> None:
+    """Atomically replace the rows of target_table matching predicate with df (a Delta
+    replaceWhere overwrite). Rows outside the predicate are untouched, and rows matching it
+    that df no longer contains are removed, so a rerun leaves exactly what this run produced.
+
+    df is aligned to the table's columns by name first: a column the table has but df lacks
+    (for example a label column only another dataset fills) is written as null.
+    """
+    target_fields = spark.table(target_table).schema.fields
+    aligned_df = df.select(
+        *[
+            F.col(field.name) if field.name in df.columns else F.lit(None).cast(field.dataType).alias(field.name)
+            for field in target_fields
+        ]
     )
+    aligned_df.write.mode("overwrite").option("replaceWhere", predicate).saveAsTable(target_table)
 
 
 def bronze_image_uri(source_archive_uri, archive_member_path):
@@ -114,35 +123,42 @@ def _scratch_table(silver_tables: dict, name: str) -> str:
     return f"{schema}._scratch_{name}"
 
 
-def reject_rows(
-    spark,
-    df,
-    target_table: str,
-    dataset_key: str,
-    reason,
-    bronze_uri_col: str = "bronze_uri",
-    description: str | None = None,
-):
-    """Build one rejected_records-shaped row per row in df and MERGE it into target_table.
+REJECTED_RECORDS_SCHEMA = (
+    "dataset_key STRING, image_id STRING, bronze_uri STRING, rejection_reason STRING, rejected_at TIMESTAMP"
+)
 
-    `reason` is a Column expression (F.lit(...) for a fixed reason, F.col(...) to
-    carry through a per-row reason already present in df). `dataset_key` identifies
-    which dataset these rejections belong to on the shared, cross-dataset
-    rejected_records table (matched together with image_id, since image_id alone
-    isn't guaranteed unique across datasets). Returns the already-written rejection
-    DataFrame; prints its row count if `description` is given.
+
+class Rejections:
+    """Collects one dataset's rejected rows during a Silver run.
+
+    Nothing is written as rows are rejected: write_silver_dataset writes them all at the end,
+    replacing the dataset's previous rejections, so a rerun never leaves stale rejections
+    behind or an image in both the inventory and the rejections.
     """
-    rejected_df = df.select(
-        F.lit(dataset_key).alias("dataset_key"),
-        F.col("image_id"),
-        F.col(bronze_uri_col).alias("bronze_uri"),
-        reason.alias("rejection_reason"),
-        F.current_timestamp().alias("rejected_at"),
-    )
-    merge_into(spark, rejected_df, target_table, ["dataset_key", "image_id"])
-    if description:
-        print(f"{description}: {rejected_df.count()}")
-    return rejected_df
+
+    def __init__(self, dataset_key: str):
+        self.dataset_key = dataset_key
+        self._frames = []
+
+    def add(self, df, reason, bronze_uri_col: str = "bronze_uri", description: str | None = None) -> None:
+        """Record df's rows as rejected. `reason` is a Column: F.lit(...) for a fixed reason, or
+        F.col(...) for a per-row reason already on df. Prints the count if `description` is given."""
+        rejected_df = df.select(
+            F.lit(self.dataset_key).alias("dataset_key"),
+            F.col("image_id"),
+            F.col(bronze_uri_col).alias("bronze_uri"),
+            reason.alias("rejection_reason"),
+            F.current_timestamp().alias("rejected_at"),
+        )
+        self._frames.append(rejected_df)
+        if description:
+            print(f"{description}: {rejected_df.count()}")
+
+    def to_dataframe(self, spark):
+        """Every rejection added so far, as one DataFrame in the rejected_records shape."""
+        if not self._frames:
+            return spark.createDataFrame([], REJECTED_RECORDS_SCHEMA)
+        return functools.reduce(lambda left, right: left.unionByName(right), self._frames)
 
 
 def assert_controlled_vocabularies(df, controlled_vocabularies: dict[str, tuple[str, ...]], context: str = "") -> None:
@@ -152,7 +168,7 @@ def assert_controlled_vocabularies(df, controlled_vocabularies: dict[str, tuple[
     `.collect()` per column. A violation means whatever produced that column's
     values doesn't map onto the shared vocabulary — a systematic bug in that code,
     not per-row data variance — so this raises and fails the run rather than
-    rejecting individual rows the way `reject_rows` does. `context` is an optional
+    rejecting individual rows the way `Rejections.add` does. `context` is an optional
     string (e.g. `f"dataset_key={dataset_key!r}"`) included in the error message to
     help locate the caller.
     """
@@ -201,41 +217,25 @@ IMAGE_INDEX_SCHEMA = StructType(
         StructField("source_checksum", StringType(), False),
     ]
 )
-IMAGE_INDEX_WRITE_BATCH_MAX_ROWS = 10_000
 
 
-def write_image_index_table(
-    spark,
-    archives: list[dict],
-    target_table: str,
-    batch_max_rows: int = IMAGE_INDEX_WRITE_BATCH_MAX_ROWS,
-):
-    """Stream locally staged zip archives to compute each image's checksum/byte_length
-    and write index rows (no image bytes) to target_table in bounded batches, deduping
-    (image_id, source_split) in memory first. Returns image_manifest_df (image_id,
-    source_split, source_uri, source_checksum) read back from the written table.
+def write_image_index_table(spark, archives: list[dict], target_table: str):
+    """Stream locally staged zip archives to compute each image's checksum/byte_length and
+    write the index rows (no image bytes) to target_table in one overwrite, deduping
+    (image_id, source_split) first. Index rows are small, so they're collected in memory and
+    written once: the table is either fully replaced or left as it was. Returns
+    image_manifest_df (image_id, source_split, source_uri, source_checksum).
 
-    Each archive dict needs `staged_archive_path`, `source_split`, `archive_dbfs_path`,
-    and `archive_filename` already set (e.g. by
+    Each archive dict needs `staged_archive_path`, `source_split`, `archive_dbfs_path`, and
+    `archive_filename` already set (e.g. by
     `data_platform.files.stage_archives_and_extract_metadata`). Assumes archive-based
-    ingestion — a dataset ingesting images from an API/other source needs its own writer.
+    ingestion; a dataset ingesting images another way needs its own writer.
     """
     seen_keys = set()
-    total_images_written = 0
-
-    def flush(batch_rows):
-        is_first = total_images_written == 0
-        writer = spark.createDataFrame(batch_rows, schema=IMAGE_INDEX_SCHEMA).write.mode(
-            "overwrite" if is_first else "append"
-        )
-        if is_first:
-            writer = writer.option("overwriteSchema", "true")
-        writer.saveAsTable(target_table)
+    index_rows = []
 
     for archive in archives:
-        batch = []
-        images_written_before_archive = total_images_written
-
+        archive_row_count = 0
         for row in iter_archive_image_rows(
             archive_path=archive["staged_archive_path"],
             source_split=archive["source_split"],
@@ -245,22 +245,12 @@ def write_image_index_table(
             if key in seen_keys:
                 continue
             seen_keys.add(key)
-
             row.pop("image_bytes")
-            batch.append(row)
-            if len(batch) >= batch_max_rows:
-                flush(batch)
-                total_images_written += len(batch)
-                batch = []
+            index_rows.append(row)
+            archive_row_count += 1
 
-        if batch:
-            flush(batch)
-            total_images_written += len(batch)
-
-        archive_images_written = total_images_written - images_written_before_archive
-        if archive_images_written == 0:
-            # Diagnose locally (staged archive, member metadata only) before failing loudly —
-            # no Volume or Spark cost either way.
+        if archive_row_count == 0:
+            # Diagnose locally (staged archive, member metadata only) before failing loudly.
             suffix_counts = count_zip_members_by_suffix(archive["staged_archive_path"])
             if not suffix_counts:
                 raise RuntimeError(f"Archive is empty, no members found: {archive['archive_filename']}")
@@ -268,20 +258,22 @@ def write_image_index_table(
                 f"No files matched known image suffixes {sorted(IMAGE_SUFFIXES)} in "
                 f"{archive['archive_filename']}; archive contains file types: {suffix_counts}"
             )
+        print(f"Indexed {archive_row_count} images for {archive['source_split']}")
 
-        print(f"Wrote {archive_images_written} index rows for {archive['source_split']}")
+    (
+        spark.createDataFrame(index_rows, schema=IMAGE_INDEX_SCHEMA)
+        .write.mode("overwrite")
+        .option("overwriteSchema", "true")
+        .saveAsTable(target_table)
+    )
+    print(f"Images indexed: {len(index_rows)}")
 
-    image_index_df = spark.table(target_table)
-    image_manifest_df = image_index_df.select(
+    return spark.table(target_table).select(
         F.col("image_id"),
         F.col("source_split"),
         bronze_image_uri(F.col("source_archive_uri"), F.col("archive_member_path")).alias("source_uri"),
         F.col("source_checksum"),
     )
-
-    print(f"Images indexed: {total_images_written}")
-
-    return image_manifest_df
 
 
 def load_combined_metadata(spark, archives: list[dict]):
@@ -372,8 +364,10 @@ def print_bronze_outputs(
 
 # ============================================================================
 # Silver pipeline — reconcile_bronze_records, apply_label_normalization,
-# validate_images, build_accepted_rows, assign_leakage_groups_and_write_inventory,
+# validate_images, build_accepted_rows, assign_leakage_groups, write_silver_dataset,
 # print_silver_outputs, called in that order from a dataset's Silver notebook.
+# Nothing is written until write_silver_dataset, which replaces this dataset's rows
+# in all three Silver tables, so a rerun always leaves exactly one run's results.
 # Silver table DDL itself is not here — it's inline in
 # 00_setup_storage_and_shared_tables.ipynb, alongside bronze.ingestion_runs and
 # gold.manifest_rows, so that notebook shows every shared table it creates
@@ -404,10 +398,9 @@ GROUP_SOURCE_BY_TYPE = {
     "patient": "patient_id",
     "singleton": "image_id",
 }
-GROUP_SOURCE_MAP = F.create_map(*[F.lit(item) for pair in GROUP_SOURCE_BY_TYPE.items() for item in pair])
 
 
-def reconcile_bronze_records(spark, bronze_tables: dict, silver_tables: dict, dataset_key: str):
+def reconcile_bronze_records(spark, bronze_tables: dict, rejections: Rejections):
     """Reject any Bronze image index row with no matching source metadata row.
 
     An orphan index row is otherwise invisible to every downstream check, since the
@@ -430,11 +423,8 @@ def reconcile_bronze_records(spark, bronze_tables: dict, silver_tables: dict, da
         )
     )
 
-    reject_rows(
-        spark,
+    rejections.add(
         orphan_index_rows_df,
-        silver_tables["rejected_records"],
-        dataset_key,
         F.lit("no matching Bronze source metadata"),
         description="Bronze image index rows with no matching source metadata (rejected)",
     )
@@ -443,13 +433,11 @@ def reconcile_bronze_records(spark, bronze_tables: dict, silver_tables: dict, da
 
 
 def apply_label_normalization(
-    spark,
     source_metadata_df,
     normalize_fn,
     input_columns: list[str],
     label_columns: list[str],
-    silver_tables: dict,
-    dataset_key: str,
+    rejections: Rejections,
     bronze_uri_col: str = "source_uri",
     controlled_vocabularies: dict[str, tuple[str, ...]] | None = None,
 ):
@@ -482,7 +470,9 @@ def apply_label_normalization(
         labeled_df = labeled_df.withColumn(label_column, F.col("labels")[label_column])
     labeled_df = labeled_df.drop("labels")
 
-    assert_controlled_vocabularies(labeled_df, controlled_vocabularies or {}, context=f"dataset_key={dataset_key!r}")
+    assert_controlled_vocabularies(
+        labeled_df, controlled_vocabularies or {}, context=f"dataset_key={rejections.dataset_key!r}"
+    )
 
     is_label_valid = F.lit(False)
     for label_column in label_columns:
@@ -491,11 +481,8 @@ def apply_label_normalization(
     label_valid_df = labeled_df.where(is_label_valid)
     unlabeled_df = labeled_df.where(~is_label_valid)
 
-    reject_rows(
-        spark,
+    rejections.add(
         unlabeled_df,
-        silver_tables["rejected_records"],
-        dataset_key,
         F.lit("unmapped or missing label"),
         bronze_uri_col=bronze_uri_col,
         description="Rows with no resolvable label (rejected)",
@@ -511,7 +498,7 @@ def validate_images(
     label_valid_df,
     archives: list[dict],
     silver_tables: dict,
-    dataset_key: str,
+    rejections: Rejections,
     bronze_uri_col: str = "source_uri",
     min_dimension: int = MIN_DIMENSION,
     max_dimension: int = MAX_DIMENSION,
@@ -522,7 +509,8 @@ def validate_images(
     `label_valid_df`'s candidate images, decode+validate each one found via
     `data_platform.validate.decode_batch`, reject anything missing from its archive
     or failing decode/dimension validation, and return the DataFrame of valid,
-    decoded images.
+    decoded images. Decode results go to a scratch table in the Silver schema
+    (`silver_tables` is only used to name it), overwritten on every run.
 
     No image bytes are ever joined from a Bronze table or persisted anywhere — each
     candidate's bytes are read from its source archive, decoded, and discarded within
@@ -602,24 +590,7 @@ def validate_images(
     if pending_rows:
         flush(pending_rows)
 
-    if checksum_mismatches:
-        formatted_mismatches = [
-            {
-                "image_id": mismatch["candidate"]["image_id"],
-                "archive_member_path": mismatch["archive_member_path"],
-                "expected_checksum": mismatch["expected_checksum"],
-                "actual_checksum": mismatch["actual_checksum"],
-            }
-            for mismatch in checksum_mismatches
-        ]
-        raise RuntimeError(
-            f"{len(checksum_mismatches)} image(s) no longer match the checksum Bronze recorded "
-            f"at ingestion time -- the source archive changed after ingestion, which breaks "
-            f"reproducibility for anything already built from it. First few: "
-            f"{formatted_mismatches[:5]}. Source archives must never change after ingestion; a "
-            f"genuine source update needs a new source_version and a fresh ingestion, not an "
-            f"in-place archive edit. See docs/decisions/005-immutable-source-archives-checksum-verified.md."
-        )
+    raise_on_checksum_mismatches(checksum_mismatches, "the checksum Bronze recorded at ingestion")
 
     decoded_df = spark.table(scratch_table) if total_decoded else spark.createDataFrame([], schema=DECODE_OUTPUT_SCHEMA)
 
@@ -627,11 +598,8 @@ def validate_images(
         unmatched_image_ids = [candidate["image_id"] for candidate in missing_candidates]
         missing_ids_df = _image_ids_df(spark, unmatched_image_ids)
         missing_df = label_valid_df.join(missing_ids_df, on="image_id", how="inner")
-        reject_rows(
-            spark,
+        rejections.add(
             missing_df,
-            silver_tables["rejected_records"],
-            dataset_key,
             F.lit("missing from source archive"),
             bronze_uri_col=bronze_uri_col,
             description="Label-valid rows missing from their source archive (rejected)",
@@ -640,11 +608,8 @@ def validate_images(
     image_invalid_df = decoded_df.where(~F.col("valid"))
     image_valid_df = decoded_df.where(F.col("valid"))
 
-    reject_rows(
-        spark,
+    rejections.add(
         image_invalid_df,
-        silver_tables["rejected_records"],
-        dataset_key,
         F.col("validation_reason"),
         description="Images failing decode/dimension validation (rejected)",
     )
@@ -685,30 +650,21 @@ def build_accepted_rows(label_valid_df, image_valid_df, label_columns: list[str]
     )
 
 
-def assign_leakage_groups_and_write_inventory(
-    spark,
-    accepted_df,
-    label_columns: list[str],
-    silver_tables: dict,
-):
-    """Assign leakage-control groups to accepted_df (exact-duplicate by
-    source_checksum, then lesion_id, then patient_id, otherwise a singleton),
-    write silver.leakage_groups, then write the accepted rows (with their
-    group_id) to silver.image_inventory. Returns (image_inventory_df, leakage_groups_df)
-    as written — pass these straight into print_silver_outputs rather than re-reading
-    the tables, since a Silver run currently always reprocesses the full dataset
-    (reconcile_bronze_records reads bronze.source_metadata unfiltered), so the
-    freshly written rows already are the tables' current state. If Silver ever
-    becomes incremental, this stops being equivalent to reading the table back.
+def assign_leakage_groups(accepted_df, label_columns: list[str]):
+    """Assign every accepted image a leakage-control group and build the Silver rows.
 
-    accepted_df must already carry a dataset_key column (build_accepted_rows adds
-    it) — grouping and the checksum-duplicate check are scoped per dataset, and
-    group_id embeds dataset_key so it stays globally unique across datasets even
-    if two datasets happen to reuse the same lesion_id/patient_id/image_id values.
+    Group priority: exact duplicates (same source_checksum within the dataset), then same
+    lesion_id, then same patient_id, otherwise a group of its own. Grouping is scoped per
+    dataset, and group_id embeds dataset_key so it stays unique across datasets even if two
+    reuse the same IDs. accepted_df must carry dataset_key (build_accepted_rows adds it).
+
+    Pure transformation, nothing written: returns (image_inventory_df, leakage_groups_df)
+    for write_silver_dataset.
     """
     checksum_counts_df = accepted_df.groupBy("dataset_key", "source_checksum").agg(
         F.count("*").alias("checksum_count")
     )
+    group_source_map = F.create_map(*[F.lit(item) for pair in GROUP_SOURCE_BY_TYPE.items() for item in pair])
 
     grouped_df = (
         accepted_df.join(checksum_counts_df, on=["dataset_key", "source_checksum"])
@@ -719,11 +675,10 @@ def assign_leakage_groups_and_write_inventory(
             .when(F.col("patient_id").isNotNull(), F.lit("patient"))
             .otherwise(F.lit("singleton")),
         )
-        .withColumn("group_source", GROUP_SOURCE_MAP[F.col("group_type")])
+        .withColumn("group_source", group_source_map[F.col("group_type")])
         .withColumn(
-            # The grouping key's *value* (as opposed to its column name, already resolved
-            # above) still needs to branch on group_type, since Spark can't select a
-            # column by another column's name without a UDF.
+            # The grouping key's value still branches on group_type: Spark can't pick a
+            # column by another column's value without a UDF.
             "group_key_value",
             F.when(F.col("group_type") == "duplicate", F.col("source_checksum"))
             .when(F.col("group_type") == "lesion", F.col("lesion_id"))
@@ -740,7 +695,6 @@ def assign_leakage_groups_and_write_inventory(
     leakage_groups_df = grouped_df.groupBy("dataset_key", "group_id", "group_type", "group_source").agg(
         F.count("*").alias("image_count")
     )
-    merge_into(spark, leakage_groups_df, silver_tables["leakage_groups"], ["dataset_key", "group_id"])
 
     image_inventory_df = grouped_df.select(
         F.col("dataset_key"),
@@ -758,12 +712,26 @@ def assign_leakage_groups_and_write_inventory(
         F.col("group_id"),
         F.current_timestamp().alias("validated_at"),
     )
-    merge_into(spark, image_inventory_df, silver_tables["image_inventory"], ["dataset_key", "image_id"])
+
+    return image_inventory_df, leakage_groups_df
+
+
+def write_silver_dataset(
+    spark, silver_tables: dict, image_inventory_df, leakage_groups_df, rejections: Rejections
+) -> None:
+    """Replace this dataset's rows in all three shared Silver tables with this run's results.
+
+    Each table is replaced atomically for `dataset_key = <this dataset>` (Delta replaceWhere),
+    so rows from an earlier run can't linger: an image accepted last time and rejected now
+    leaves the inventory, and vice versa. Other datasets' rows are untouched.
+    """
+    predicate = f"dataset_key = {sql_string(rejections.dataset_key)}"
+    overwrite_where(spark, leakage_groups_df, silver_tables["leakage_groups"], predicate)
+    overwrite_where(spark, image_inventory_df, silver_tables["image_inventory"], predicate)
+    overwrite_where(spark, rejections.to_dataframe(spark), silver_tables["rejected_records"], predicate)
 
     print(f"Accepted images written to image_inventory: {image_inventory_df.count()}")
     print(f"Leakage-control groups: {leakage_groups_df.count()}")
-
-    return image_inventory_df, leakage_groups_df
 
 
 def print_silver_outputs(
@@ -774,7 +742,7 @@ def print_silver_outputs(
     distribution, and leakage-group sizes.
 
     `image_inventory_df`/`leakage_groups_df` are the DataFrames returned by
-    `assign_leakage_groups_and_write_inventory` for this same run — passed in rather
+    `assign_leakage_groups` for this same run — passed in rather
     than re-read from storage, since they're already the tables' current state (see
     that function's docstring). `rejected_records` has no such single in-memory
     DataFrame (rejections are written separately across three earlier pipeline
@@ -910,60 +878,32 @@ def assert_no_cross_dataset_duplicate_checksums(spark, silver_tables: dict, data
         )
 
 
-def write_gold_manifest_rows(
-    spark,
-    silver_tables: dict,
-    gold_tables: dict,
+def build_manifest_rows(
+    inventory_df,
+    split_df,
     dataset_key: str,
     label_column: str,
-    split_by_group: dict[str, str],
     dataset_version: str,
     sample_seed: int,
     split_seed: int,
     preprocessing_version: str,
     git_commit: str,
-) -> None:
-    """Filter silver.image_inventory (dataset_key, non-null label_column) down to only
-    the groups selected in split_by_group, attach each row's split, compute
-    manifest_row_hash, and MERGE into gold.manifest_rows.
+):
+    """One dataset's rows for a Gold release: its accepted images (non-null label_column) in the
+    selected groups, each with its split, seeds, preprocessing version, row hash and the git
+    commit of the code writing the release.
 
-    split_by_group is joined in as a small Spark DataFrame rather than a F.when()
-    chain, so this scales the same way regardless of its size. label_column has no
-    default — every caller must say explicitly which Silver column a release's label
-    comes from (matches apply_label_normalization's label_columns/controlled_vocabularies
-    being explicit, never implicit).
+    `inventory_df` is silver.image_inventory (or rows shaped like it); `split_df` has one row per
+    selected group (group_id, split). Pure transformation, nothing written.
 
-    sample_seed and split_seed are recorded as separate columns, not just used
-    internally by data_platform.sampling.select_sample_and_splits — so a later query
-    against gold.manifest_registry can verify two manifests really did draw from
-    the same image pool (same sample_seed) even if their split_seed or
-    preprocessing_version differ, rather than having to trust that from outside
-    the data (e.g. by comparing config files by hand). That reuse is cheap only at
-    this table's level (metadata rows) — a dataset_version created solely to carry a
-    different preprocessing_version, with no other change, should not also get a
-    Gold shard export: write_gold_shards_for_splits writes raw bytes regardless of
-    preprocessing_version, so exporting both would just duplicate identical shard
-    bytes for no benefit. See docs/decisions/007-pin-data-and-preprocessing-per-training-run.md.
-
-    created_at is set to the current timestamp on every call, same convention as
-    Silver's validated_at — rerunning this for a (dataset_version, dataset_key,
-    image_id) that already exists refreshes created_at to "last written," not
-    "originally created." gold.manifest_registry (a view over this table) surfaces
-    it as the manifest's creation time for display purposes; it isn't a strict
-    immutable-creation guarantee.
-
-    git_commit is the commit of the code writing this release (from
-    data_platform.provenance.resolve_git_commit), so a release can be traced back to the
-    sampling and splitting code that produced it. Required: an empty value raises.
+    sample_seed and split_seed are separate columns so gold.manifest_registry can show that two
+    releases drew from the same image pool (same sample_seed) even if their splits differ.
     """
     if not git_commit:
         raise ValueError("git_commit is required -- resolve it with data_platform.provenance.resolve_git_commit")
 
-    split_rows = [{"group_id": group_id, "split": split} for group_id, split in split_by_group.items()]
-    split_df = spark.createDataFrame(split_rows, schema="group_id STRING, split STRING")
-
-    manifest_df = (
-        spark.table(silver_tables["image_inventory"])
+    return (
+        inventory_df
         .where((F.col("dataset_key") == dataset_key) & F.col(label_column).isNotNull())
         .join(split_df, on="group_id", how="inner")
         .select(
@@ -987,9 +927,63 @@ def write_gold_manifest_rows(
         .withColumn("git_commit", F.lit(git_commit))
     )
 
-    merge_into(spark, manifest_df, gold_tables["manifest_rows"], ["dataset_version", "dataset_key", "image_id"])
 
-    print(f"{dataset_key}: manifest rows written for dataset_version={dataset_version!r}: {manifest_df.count()}")
+def write_gold_release(
+    spark,
+    silver_tables: dict,
+    gold_tables: dict,
+    split_by_group_by_dataset: dict[str, dict[str, str]],
+    label_column: str,
+    dataset_version: str,
+    sample_seed: int,
+    split_seed: int,
+    preprocessing_version: str,
+    git_commit: str,
+    overwrite_existing: bool = False,
+) -> None:
+    """Publish one Gold release: every included dataset's rows, written to gold.manifest_rows in
+    a single atomic replace of `dataset_version = <this release>`.
+
+    Releases are immutable once published: if dataset_version already has rows, this raises
+    unless `overwrite_existing` is set, because models may already be trained on it. Give a
+    changed selection a new dataset_version instead. With `overwrite_existing`, the old release
+    is replaced entirely, never merged with the new one.
+
+    `split_by_group_by_dataset` maps each dataset_key to select_sample_and_splits' output
+    ({group_id: split}).
+    """
+    if not split_by_group_by_dataset:
+        raise ValueError("No datasets to write -- every dataset in the manifest config was skipped.")
+
+    manifest_table = gold_tables["manifest_rows"]
+    already_published = (
+        spark.table(manifest_table).where(F.col("dataset_version") == dataset_version).limit(1).count() > 0
+    )
+    if already_published and not overwrite_existing:
+        raise ValueError(
+            f"dataset_version={dataset_version!r} is already published in {manifest_table}. Releases "
+            f"are immutable: give this selection a new dataset_version in its manifest config, or set "
+            f"OVERWRITE_EXISTING_RELEASE = True if you really mean to replace it."
+        )
+
+    inventory_df = spark.table(silver_tables["image_inventory"])
+    release_frames = []
+    for dataset_key, split_by_group in split_by_group_by_dataset.items():
+        split_rows = [{"group_id": group_id, "split": split} for group_id, split in split_by_group.items()]
+        split_df = spark.createDataFrame(split_rows, schema="group_id STRING, split STRING")
+        release_frames.append(
+            build_manifest_rows(
+                inventory_df, split_df, dataset_key, label_column, dataset_version,
+                sample_seed, split_seed, preprocessing_version, git_commit,
+            )
+        )
+    release_df = functools.reduce(lambda left, right: left.unionByName(right), release_frames)
+
+    overwrite_where(spark, release_df, manifest_table, f"dataset_version = {sql_string(dataset_version)}")
+
+    written = spark.table(manifest_table).where(F.col("dataset_version") == dataset_version)
+    for row in written.groupBy("dataset_key").count().collect():
+        print(f"{row['dataset_key']}: {row['count']} manifest rows in dataset_version={dataset_version!r}")
 
 
 def print_gold_outputs(

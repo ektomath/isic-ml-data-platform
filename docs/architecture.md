@@ -47,7 +47,7 @@ The logic lives in [`src/data_platform/spark_io.py`](../src/data_platform/spark_
    Rows where neither label resolves are rejected with a reason.
 3. **Validate images.** Each candidate is streamed from its archive, checksum-verified and decoded. Unreadable images and images outside 50 to 15,000 pixels per side are rejected.
 4. **Group for leakage control.** Every accepted image gets a `group_id`, in priority order: identical bytes, then same lesion, then same patient, otherwise its own group. Splits are later made by group, never by image.
-5. **Write** to three tables shared by every dataset: `silver.image_inventory` (accepted images with labels and group), `silver.leakage_groups` and `silver.rejected_records` (every excluded image and why).
+5. **Write** this dataset's results, replacing its rows from any earlier run, to three tables shared by every dataset: `silver.image_inventory` (accepted images with labels and group), `silver.leakage_groups` and `silver.rejected_records` (every excluded image and why).
 
 ### Gold: publish a versioned training dataset
 
@@ -55,12 +55,12 @@ The logic lives in [`src/data_platform/spark_io.py`](../src/data_platform/spark_
 
 1. Checks that no image (by checksum) appears in two of the datasets being combined.
 2. Selects whole leakage groups and assigns them to `train`, `validation` or `test` with seeded, pure Python ([`sampling.py`](../src/data_platform/sampling.py)), so the same config always gives the same split.
-3. Writes the rows to `gold.manifest_rows`, each with a row hash and the git commit of the code that wrote it. It refuses to run if it can't find a commit.
+3. Writes every dataset's rows to `gold.manifest_rows` in one atomic write, each with a row hash and the git commit of the code that wrote it. It refuses to run if it can't find a commit, and refuses to overwrite a release that's already published, since models may be trained on it.
 4. Fails if any leakage group ends up in more than one split.
 
 `gold.manifest_registry` is a view with one line per release. The current release, `sample-v1`, is deliberately small (about 100 images per dataset) so the pipeline can be iterated on cheaply.
 
-**Shard export.** Streams the release's images out of their archives in one pass, re-verifies every checksum, and writes per-split [MosaicML](https://docs.mosaicml.com/projects/streaming/) shards: a handful of large files per split, each packing many images together with their labels, so training can stream them efficiently instead of opening thousands of small files. Each sample holds the raw image bytes, its label, `image_id`, `dataset_key` and `group_id`. Shards are a rebuildable cache, never a source of truth, and the export fails if its counts don't match the manifest.
+**Shard export.** Streams the release's images out of their archives in one pass, re-verifies every checksum, and writes per-split [MosaicML](https://docs.mosaicml.com/projects/streaming/) shards: a handful of large files per split, each packing many images together with their labels, so training can stream them efficiently instead of opening thousands of small files. Each sample holds the raw image bytes, its label, `image_id`, `dataset_key` and `group_id`. Shards are a rebuildable cache, never a source of truth. They're written to a temporary folder and only moved into place once every image is verified, so a failed export never leaves half-written shards behind, and the export fails if its counts don't match the manifest.
 
 ## Training and reproducibility
 
