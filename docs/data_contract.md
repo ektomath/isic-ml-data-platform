@@ -15,7 +15,7 @@ The schema of every table and config file the platform writes or reads. This is 
 | `gold.manifest_rows` | Gold | Image in a training release | `dataset_version`, `dataset_key`, `image_id` |
 | `gold.manifest_registry` (view) | Gold | Training release | `dataset_version` |
 
-Bronze tables are per dataset because source schemas differ. Silver and Gold tables are shared across datasets and carry a `dataset_key` column, since an `image_id` is only unique within one dataset. Reruns never leave stale rows: a Bronze ingestion replaces the dataset's image index and source metadata, a Silver run replaces its dataset's rows in all three Silver tables (Delta `replaceWhere` on `dataset_key`), and a Gold release is written in one replace of its `dataset_version`. A published release is immutable: rebuilding it fails unless the `overwrite_existing_release` job parameter is `true`.
+Bronze tables are per dataset because source schemas differ. Silver and Gold tables are shared across datasets and carry a `dataset_key` column, since an `image_id` is only unique within one dataset. Reruns never leave stale rows: a Bronze ingestion replaces the dataset's image index and source metadata, a Silver run replaces its dataset's rows in all three Silver tables (Delta `replaceWhere` on `dataset_key`, which the Silver tables are partitioned by, so several datasets can run Silver at the same time), and a Gold release is written in one replace of its `dataset_version`. A published release is immutable: rebuilding it fails unless the `overwrite_existing_release` job parameter is `true`.
 
 ## Conventions
 
@@ -34,7 +34,7 @@ One table per dataset, holding its source metadata exactly as published. The sou
 |---|---|---|
 | `image_id` | string | The source's stable image identifier |
 | `source_split` | string | Which source archive split the record came from |
-| `source_uri` | string | Archive locator for this image's bytes |
+| `source_uri` | string or null | Archive locator for this image's bytes; null if the archive has no such image (Silver rejects those rows) |
 | `source_checksum` | string | SHA-256 of the image bytes, joined from the image index |
 | `ingestion_run_id` | string | Links to `bronze.ingestion_runs` |
 | `ingested_at` | timestamp | When ingested |
@@ -63,7 +63,7 @@ One row per ingestion run, shared across datasets.
 | `source_version` | string | Source release identifier, from the dataset config |
 | `started_at`, `finished_at` | timestamp | Run start and end |
 | `status` | string | `success` or `failed`; a failed run still writes its row, then raises |
-| `records_seen` | integer | Metadata rows read, before rows without a matching image are dropped |
+| `records_seen` | integer | Rows read from the metadata CSVs |
 | `records_written` | integer | Rows written |
 
 ## Silver
