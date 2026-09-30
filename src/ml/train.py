@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import logging
+from dataclasses import dataclass
 from pathlib import Path
 
 import mlflow
@@ -32,7 +34,9 @@ from ml.metrics import compute_classification_metrics
 from data_platform.provenance import resolve_git_commit
 from ml.mlflow_utils import configure_mlflow_tracking, configure_model_registry
 from ml.preprocessing import build_transforms
-from ml.training_run import resolve_training_run
+from ml.training_run import TrainingRunSpec, resolve_training_run
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_CONFIG_ROOT = Path(__file__).resolve().parents[2] / "config"
 
@@ -97,9 +101,6 @@ def resolve_shards_root(shards_root: str | None, storage_config: dict, dataset_v
     if shards_root is not None:
         return shards_root
     return join_storage_path(storage_config["storage_root"], f"gold/{dataset_version}/shards")
-
-
-DEFAULT_MANIFEST_TABLE = "gold.manifest_rows"
 
 
 def log_training_inputs(dataset_version: str, base_shards_root: str, manifest_table: str) -> None:
@@ -265,6 +266,148 @@ def evaluate(model, dataloader, device, label_values: list[str], loss_fn=None) -
     return metrics
 
 
+@dataclass
+class PreparedRun:
+    """Everything resolved before training starts: the pinned config, the commit, and where the
+    shards are."""
+
+    spec: TrainingRunSpec
+    git_commit: str
+    random_seed: int
+    shards_root: str
+    manifest_table: str
+    device: str
+
+
+def prepare_run(
+    training_run_name: str, config_root: Path, shards_root: str | None, device: str | None, git_commit: str | None
+) -> PreparedRun:
+    """Resolve and check everything cheap first, so a bad config or missing shards fail before any
+    MLflow setup or data loading."""
+    resolved_commit = resolve_git_commit(explicit_commit=git_commit)
+    spec = resolve_training_run(config_root, training_run_name)
+    check_metadata_preprocessing_is_used(spec.architecture, spec.metadata_preprocessing_version)
+
+    storage_config = load_yaml_config(config_root / "storage.yaml")
+    base_shards_root = resolve_shards_root(shards_root, storage_config, spec.dataset_version)
+    check_shards_exist(base_shards_root)
+
+    resolved_device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+    if device is None and resolved_device == "cpu":
+        logger.warning(
+            "No CUDA device found, so training will run on CPU. If this should be a GPU run, the "
+            "installed torch build probably has no CUDA support (check torch.version.cuda)."
+        )
+
+    return PreparedRun(
+        spec=spec,
+        git_commit=resolved_commit,
+        random_seed=spec.preprocessing_config["random_seed"],
+        shards_root=base_shards_root,
+        manifest_table=storage_config["manifest_table"],
+        device=resolved_device,
+    )
+
+
+def build_loaders(run: PreparedRun, num_workers: int) -> dict:
+    """One DataLoader per split, with the recipe's train or eval transforms."""
+    label_to_index = label_to_index_map(run.spec.label_values)
+    train_transform = build_transforms(run.spec.preprocessing_config, "train")
+    eval_transform = build_transforms(run.spec.preprocessing_config, "eval")
+    split_settings = {"train": (train_transform, True), "validation": (eval_transform, False), "test": (eval_transform, False)}
+    return {
+        split: build_dataloader(
+            join_storage_path(run.shards_root, split),
+            transform,
+            label_to_index,
+            run.spec.batch_size,
+            shuffle=shuffle,
+            num_workers=num_workers,
+            shuffle_seed=run.random_seed,
+        )
+        for split, (transform, shuffle) in split_settings.items()
+    }
+
+
+def log_run_metadata(run: PreparedRun) -> None:
+    """Record the run's inputs, recipes and parameters on the active MLflow run. The full recipes
+    are logged, not just their names: a recipe file edited in place keeps its name."""
+    log_training_inputs(run.spec.dataset_version, run.shards_root, run.manifest_table)
+    mlflow.log_dict(run.spec.preprocessing_config, "preprocessing_config.json")
+    if run.spec.metadata_preprocessing_config is not None:
+        mlflow.log_dict(run.spec.metadata_preprocessing_config, "metadata_preprocessing_config.json")
+    mlflow.log_params(
+        {
+            "architecture": run.spec.architecture,
+            "pretrained": run.spec.pretrained,
+            "batch_size": run.spec.batch_size,
+            "num_epochs": run.spec.num_epochs,
+            "learning_rate": run.spec.learning_rate,
+            "optimizer": run.spec.optimizer,
+            "random_seed": run.random_seed,
+            "git_commit": run.git_commit,
+            "device": run.device,
+        }
+    )
+
+
+def fit_and_evaluate(model: nn.Module, loaders: dict, run: PreparedRun) -> dict:
+    """Train for the configured epochs, logging train and validation metrics each epoch, then
+    evaluate on the test split and log its metrics. Returns the test metrics."""
+    optimizer = build_optimizer(model, run.spec.optimizer, run.spec.learning_rate)
+    loss_fn = nn.CrossEntropyLoss()
+
+    for epoch in range(run.spec.num_epochs):
+        train_metrics = train_one_epoch(model, loaders["train"], optimizer, loss_fn, run.device)
+        validation_metrics = evaluate(model, loaders["validation"], run.device, run.spec.label_values, loss_fn)
+        mlflow.log_metrics(
+            {
+                "train_loss": train_metrics["train_loss"],
+                "validation_loss": validation_metrics["loss"],
+                "validation_balanced_accuracy": validation_metrics["balanced_accuracy"],
+            },
+            step=epoch,
+        )
+
+    test_metrics = evaluate(model, loaders["test"], run.device, run.spec.label_values, loss_fn)
+    mlflow.log_metrics(
+        {
+            "test_balanced_accuracy": test_metrics["balanced_accuracy"],
+            **{f"test_recall_{label}": recall for label, recall in test_metrics["per_class_recall"].items()},
+        }
+    )
+    mlflow.log_dict(
+        {"confusion_matrix": test_metrics["confusion_matrix"], "label_values": run.spec.label_values},
+        "confusion_matrix.json",
+    )
+    mlflow.log_text(test_metrics["classification_report"], "classification_report.txt")
+    return test_metrics
+
+
+def log_and_register_model(model: nn.Module, run: PreparedRun, registered_model_name: str | None) -> None:
+    """Log the model with its signature and, if a name is given, register it in the model registry
+    with the run's lineage tags. serialization_format="pickle" avoids mlflow's default traced
+    format, which needs a real input example; Unity Catalog needs the signature to register."""
+    model_info = mlflow.pytorch.log_model(
+        model,
+        artifact_path="model",
+        serialization_format="pickle",
+        signature=model_signature(model, run.spec.preprocessing_config["image_size"], run.device),
+        registered_model_name=registered_model_name,
+    )
+    if registered_model_name is not None:
+        tag_registered_model_version(
+            registered_model_name,
+            str(model_info.registered_model_version),
+            {
+                "training_run_name": run.spec.training_run_name,
+                "dataset_version": run.spec.dataset_version,
+                "preprocessing_version": run.spec.preprocessing_version,
+                "git_commit": run.git_commit,
+            },
+        )
+
+
 def run_training(
     training_run_name: str,
     config_root: str | Path | None = None,
@@ -277,153 +420,42 @@ def run_training(
     num_workers: int = 0,
     git_commit: str | None = None,
 ) -> str:
-    """The reusable orchestrator -- identical whether called from a CLI/local script or a
-    Databricks notebook cell (`notebooks/40_train_baseline_classifier.ipynb`'s training cell). Returns
-    the MLflow run_id.
+    """Train, evaluate and log one pinned training run; returns the MLflow run_id. The same call
+    runs from the command line and from notebooks/40_train_baseline_classifier.ipynb.
 
-    `registered_model_name` (falling back to the training-run config's own field if this
-    argument is omitted) additionally registers the trained model as a new version of that name
-    in the MLflow Model Registry -- e.g. a Unity Catalog `catalog.schema.model` name, so
-    successive training runs across different architectures/hyperparameters accumulate as
-    versions of one named model instead of only being addressable by run_id. Omitted entirely
-    (the default) if neither is set -- the model is still logged to the run either way.
-
-    `git_commit` overrides the commit lookup, for jobs deployed as a bundle (see
-    data_platform.provenance.resolve_git_commit).
+    `registered_model_name` (falling back to the training-run config's own field) also registers
+    the model, e.g. under a Unity Catalog `catalog.schema.model` name. `git_commit` overrides the
+    commit lookup, for jobs deployed as a bundle.
     """
-    # Ordered deliberately to fail fast: cheap/local checks first, then the network-dependent
-    # MLflow setup, and only then the expensive part (reading every split's shard index).
-    config_root = Path(config_root) if config_root is not None else DEFAULT_CONFIG_ROOT
-    git_commit = resolve_git_commit(explicit_commit=git_commit)
-    spec = resolve_training_run(config_root, training_run_name)
-    check_metadata_preprocessing_is_used(spec.architecture, spec.metadata_preprocessing_version)
-    random_seed = spec.preprocessing_config["random_seed"]
-    torch.manual_seed(random_seed)
+    run = prepare_run(
+        training_run_name,
+        Path(config_root) if config_root is not None else DEFAULT_CONFIG_ROOT,
+        shards_root,
+        device,
+        git_commit,
+    )
+    torch.manual_seed(run.random_seed)
 
-    storage_config = load_yaml_config(config_root / "storage.yaml")
-    base_shards_root = resolve_shards_root(shards_root, storage_config, spec.dataset_version)
-    check_shards_exist(base_shards_root)
-
-    resolved_device = device or ("cuda" if torch.cuda.is_available() else "cpu")
-    if device is None and resolved_device == "cpu":
-        print(
-            "WARNING: no CUDA device found -- training will run on CPU. If this is meant to be a "
-            "GPU run, the installed torch build likely has no CUDA support compiled in (a plain "
-            "'pip install torch'/'uv add torch' often resolves to a CPU-only wheel) -- check "
-            "torch.cuda.is_available() and torch.version.cuda before trusting this run's timing."
-        )
-
-    configure_mlflow_tracking(mlflow_experiment or spec.mlflow_experiment, mlflow_tracking_uri)
-
-    resolved_registered_model_name = registered_model_name or spec.registered_model_name
+    configure_mlflow_tracking(mlflow_experiment or run.spec.mlflow_experiment, mlflow_tracking_uri)
+    resolved_registered_model_name = registered_model_name or run.spec.registered_model_name
     if resolved_registered_model_name is not None:
         configure_model_registry(registry_uri)
 
-    label_to_index = label_to_index_map(spec.label_values)
-    train_transform = build_transforms(spec.preprocessing_config, "train")
-    eval_transform = build_transforms(spec.preprocessing_config, "eval")
-
-    split_settings = {
-        "train": (train_transform, True),
-        "validation": (eval_transform, False),
-        "test": (eval_transform, False),
-    }
-    loaders = {
-        split: build_dataloader(
-            join_storage_path(base_shards_root, split),
-            transform,
-            label_to_index,
-            spec.batch_size,
-            shuffle=shuffle,
-            num_workers=num_workers,
-            shuffle_seed=random_seed,
-        )
-        for split, (transform, shuffle) in split_settings.items()
-    }
-    train_loader, validation_loader, test_loader = loaders["train"], loaders["validation"], loaders["test"]
-
-    model = build_model(spec.architecture, len(spec.label_values), spec.pretrained).to(resolved_device)
-    optimizer = build_optimizer(model, spec.optimizer, spec.learning_rate)
-    loss_fn = nn.CrossEntropyLoss()
+    loaders = build_loaders(run, num_workers)
+    model = build_model(run.spec.architecture, len(run.spec.label_values), run.spec.pretrained).to(run.device)
 
     with mlflow.start_run(
         run_name=training_run_name,
         tags={
-            "training_run_name": spec.training_run_name,
-            "dataset_version": spec.dataset_version,
-            "preprocessing_version": spec.preprocessing_version,
+            "training_run_name": run.spec.training_run_name,
+            "dataset_version": run.spec.dataset_version,
+            "preprocessing_version": run.spec.preprocessing_version,
         },
-    ) as run:
-        # The full recipes, not just their names: a recipe file edited in place keeps its name,
-        # so the name alone can't prove which preprocessing a model was trained with.
-        log_training_inputs(
-            spec.dataset_version, base_shards_root, storage_config.get("manifest_table", DEFAULT_MANIFEST_TABLE)
-        )
-        mlflow.log_dict(spec.preprocessing_config, "preprocessing_config.json")
-        if spec.metadata_preprocessing_config is not None:
-            mlflow.log_dict(spec.metadata_preprocessing_config, "metadata_preprocessing_config.json")
-        mlflow.log_params(
-            {
-                "architecture": spec.architecture,
-                "pretrained": spec.pretrained,
-                "batch_size": spec.batch_size,
-                "num_epochs": spec.num_epochs,
-                "learning_rate": spec.learning_rate,
-                "optimizer": spec.optimizer,
-                "random_seed": random_seed,
-                "git_commit": git_commit,
-                "device": resolved_device,
-            }
-        )
-
-        for epoch in range(spec.num_epochs):
-            train_metrics = train_one_epoch(model, train_loader, optimizer, loss_fn, resolved_device)
-            validation_metrics = evaluate(model, validation_loader, resolved_device, spec.label_values, loss_fn)
-            mlflow.log_metrics(
-                {
-                    "train_loss": train_metrics["train_loss"],
-                    "validation_loss": validation_metrics["loss"],
-                    "validation_balanced_accuracy": validation_metrics["balanced_accuracy"],
-                },
-                step=epoch,
-            )
-
-        test_metrics = evaluate(model, test_loader, resolved_device, spec.label_values, loss_fn)
-        mlflow.log_metrics(
-            {
-                "test_balanced_accuracy": test_metrics["balanced_accuracy"],
-                **{f"test_recall_{label}": recall for label, recall in test_metrics["per_class_recall"].items()},
-            }
-        )
-        mlflow.log_dict(
-            {"confusion_matrix": test_metrics["confusion_matrix"], "label_values": spec.label_values},
-            "confusion_matrix.json",
-        )
-        mlflow.log_text(test_metrics["classification_report"], "classification_report.txt")
-        # serialization_format="pickle": mlflow-skinny's default ("pt2") is a traced-graph
-        # format requiring a real input_example to trace the model graph through -- pickle
-        # needs none of that and is simpler/more reliable for a baseline classifier this size.
-        # Unity Catalog refuses to register a model without a signature.
-        model_info = mlflow.pytorch.log_model(
-            model,
-            artifact_path="model",
-            serialization_format="pickle",
-            signature=model_signature(model, spec.preprocessing_config["image_size"], resolved_device),
-            registered_model_name=resolved_registered_model_name,
-        )
-        if resolved_registered_model_name is not None:
-            tag_registered_model_version(
-                resolved_registered_model_name,
-                str(model_info.registered_model_version),
-                {
-                    "training_run_name": spec.training_run_name,
-                    "dataset_version": spec.dataset_version,
-                    "preprocessing_version": spec.preprocessing_version,
-                    "git_commit": git_commit,
-                },
-            )
-
-        return run.info.run_id
+    ) as mlflow_run:
+        log_run_metadata(run)
+        fit_and_evaluate(model, loaders, run)
+        log_and_register_model(model, run, resolved_registered_model_name)
+        return mlflow_run.info.run_id
 
 
 def main(argv: list[str] | None = None) -> None:

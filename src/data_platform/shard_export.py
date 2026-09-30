@@ -27,7 +27,7 @@ from pathlib import Path
 
 from streaming import MDSWriter
 
-from data_platform.files import iter_archive_matches, parse_bronze_uri, raise_on_checksum_mismatches
+from data_platform.files import ArchiveMatches, parse_bronze_uri, raise_on_checksum_mismatches
 
 PARTIAL_SUFFIX = ".partial"
 
@@ -82,8 +82,7 @@ def write_gold_shards_for_splits(
             candidates_by_archive_uri[source_archive_uri][archive_member_path] = {**row, "split": split}
 
     sample_counts: dict[str, int] = defaultdict(int)
-    checksum_mismatches: list[dict] = []
-    missing_candidates: list[dict] = []
+    matches = ArchiveMatches(candidates_by_archive_uri, staged_path_by_archive_uri)
     partial_dir_by_split = {split: shard_dir_by_split[split] + PARTIAL_SUFFIX for split in rows_by_split}
 
     try:
@@ -97,9 +96,7 @@ def write_gold_shards_for_splits(
                 )
                 for split, partial_dir in partial_dir_by_split.items()
             }
-            for candidate_row, archive_row in iter_archive_matches(
-                candidates_by_archive_uri, staged_path_by_archive_uri, checksum_mismatches, missing_candidates
-            ):
+            for candidate_row, archive_row in matches:
                 writer_by_split[candidate_row["split"]].write(
                     {
                         "image": archive_row["image_bytes"],
@@ -111,9 +108,9 @@ def write_gold_shards_for_splits(
                 )
                 sample_counts[candidate_row["split"]] += 1
 
-        raise_on_checksum_mismatches(checksum_mismatches, "the checksum recorded on their manifest row")
-        if missing_candidates:
-            missing_image_ids = [candidate["image_id"] for candidate in missing_candidates]
+        raise_on_checksum_mismatches(matches.checksum_mismatches, "the checksum recorded on their manifest row")
+        if matches.missing:
+            missing_image_ids = [candidate["image_id"] for candidate in matches.missing]
             raise RuntimeError(
                 f"{len(missing_image_ids)} manifest row(s) missing from their source archive, "
                 f"first few: {missing_image_ids[:5]}. A published gold.manifest_rows release "

@@ -85,7 +85,9 @@ def select_sample_and_splits(
     sizes mean the actual counts land close but rarely exact, and that's fine
     for a small sample. Every label present in `groups` gets at least one group
     in the sample (a `max(1, ...)` floor), so a rare label isn't silently
-    dropped just because its proportional share rounds to zero.
+    dropped just because its proportional share rounds to zero. A label with at least one
+    selected group per split also gets at least one group in every split, so validation and
+    test don't silently miss a rare class.
 
     Returns {group_id: split_name} for only the *selected* groups — callers
     filter their image rows to this dict's keys.
@@ -113,17 +115,39 @@ def select_sample_and_splits(
         sorted_groups = sorted(label_groups, key=lambda g: g["group_id"])
         random.Random(f"{split_seed}:split:{label}").shuffle(sorted_groups)
 
-        remaining = list(sorted_groups)
+        groups_by_split: dict[str, list[GroupSummary]] = {name: [] for name in split_names}
+        next_index = 0
         for split_name in split_names[:-1]:
             quota = split_quotas[split_name]
             running_count = 0
-            while remaining and running_count < quota:
-                group = remaining.pop(0)
-                split_by_group[group["group_id"]] = split_name
+            while next_index < len(sorted_groups) and running_count < quota:
+                group = sorted_groups[next_index]
+                next_index += 1
+                groups_by_split[split_name].append(group)
                 running_count += group["image_count"]
         # Whatever's left goes to the last split — avoids under-filling it due
         # to rounding, and keeps every selected group assigned to exactly one split.
-        for group in remaining:
-            split_by_group[group["group_id"]] = split_names[-1]
+        groups_by_split[split_names[-1]].extend(sorted_groups[next_index:])
+
+        _give_every_split_a_group(groups_by_split, split_names)
+        for split_name, split_groups in groups_by_split.items():
+            for group in split_groups:
+                split_by_group[group["group_id"]] = split_name
 
     return split_by_group
+
+
+def _give_every_split_a_group(groups_by_split: dict[str, list[GroupSummary]], split_names: tuple[str, ...]) -> None:
+    """If a label has at least one group per split, make sure no split is left without one, so a
+    rare label still appears in validation and test. Moves the smallest group from the split
+    holding the most groups; a label with fewer groups than splits is left as it is."""
+    if sum(len(split_groups) for split_groups in groups_by_split.values()) < len(split_names):
+        return
+    for split_name in split_names:
+        if groups_by_split[split_name]:
+            continue
+        donor_name = max(split_names, key=lambda name: len(groups_by_split[name]))
+        donor_groups = groups_by_split[donor_name]
+        smallest = min(donor_groups, key=lambda group: (group["image_count"], group["group_id"]))
+        donor_groups.remove(smallest)
+        groups_by_split[split_name].append(smallest)

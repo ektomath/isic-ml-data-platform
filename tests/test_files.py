@@ -11,7 +11,7 @@ from data_platform.files import (
     format_bronze_uri,
     is_image_file,
     iter_archive_image_rows,
-    iter_archive_matches,
+    ArchiveMatches,
     parse_bronze_uri,
     stage_archive_locally,
     stage_archives_and_extract_metadata,
@@ -242,7 +242,7 @@ def _checksum(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def test_iter_archive_matches_yields_verified_matches_across_archives(tmp_path):
+def test_archive_matches_yields_verified_matches_across_archives(tmp_path):
     image_a, image_b = b"image-a", b"image-b"
     archive_1 = tmp_path / "archive1.zip"
     archive_2 = tmp_path / "archive2.zip"
@@ -251,69 +251,41 @@ def test_iter_archive_matches_yields_verified_matches_across_archives(tmp_path):
     with zipfile.ZipFile(archive_2, "w") as archive:
         archive.writestr("b.jpg", image_b)
 
-    candidates_by_archive_uri = {
-        "uri1": {"a.jpg": {"image_id": "a", "source_checksum": _checksum(image_a)}},
-        "uri2": {"b.jpg": {"image_id": "b", "source_checksum": _checksum(image_b)}},
-    }
-    checksum_mismatches: list[dict] = []
-    missing_candidates: list[dict] = []
-
-    matches = list(
-        iter_archive_matches(
-            candidates_by_archive_uri,
-            {"uri1": archive_1, "uri2": archive_2},
-            checksum_mismatches,
-            missing_candidates,
-        )
+    matches = ArchiveMatches(
+        {
+            "uri1": {"a.jpg": {"image_id": "a", "source_checksum": _checksum(image_a)}},
+            "uri2": {"b.jpg": {"image_id": "b", "source_checksum": _checksum(image_b)}},
+        },
+        {"uri1": archive_1, "uri2": archive_2},
     )
 
     assert {candidate["image_id"] for candidate, _archive_row in matches} == {"a", "b"}
-    assert checksum_mismatches == []
-    assert missing_candidates == []
+    assert matches.checksum_mismatches == []
+    assert matches.missing == []
 
 
-def test_iter_archive_matches_collects_checksum_mismatch_without_raising(tmp_path):
-    image_a = b"image-a"
+def test_archive_matches_collects_checksum_mismatch_without_raising(tmp_path):
     archive_path = tmp_path / "archive.zip"
     with zipfile.ZipFile(archive_path, "w") as archive:
-        archive.writestr("a.jpg", image_a)
-
+        archive.writestr("a.jpg", b"image-a")
     candidate = {"image_id": "a", "source_checksum": _checksum(b"different-bytes")}
-    checksum_mismatches: list[dict] = []
-    missing_candidates: list[dict] = []
 
-    matches = list(
-        iter_archive_matches(
-            {"uri1": {"a.jpg": candidate}},
-            {"uri1": archive_path},
-            checksum_mismatches,
-            missing_candidates,
-        )
-    )
+    matches = ArchiveMatches({"uri1": {"a.jpg": candidate}}, {"uri1": archive_path})
 
-    assert matches == []
-    assert len(checksum_mismatches) == 1
-    assert checksum_mismatches[0]["candidate"] == candidate
-    assert missing_candidates == []
+    assert list(matches) == []
+    assert len(matches.checksum_mismatches) == 1
+    assert matches.checksum_mismatches[0]["candidate"] == candidate
+    assert matches.missing == []
 
 
-def test_iter_archive_matches_collects_missing_candidate_for_unstaged_archive():
+def test_archive_matches_collects_missing_candidate_for_unstaged_archive():
     candidate = {"image_id": "a", "source_checksum": _checksum(b"whatever")}
-    checksum_mismatches: list[dict] = []
-    missing_candidates: list[dict] = []
 
-    matches = list(
-        iter_archive_matches(
-            {"uri1": {"a.jpg": candidate}},
-            {},
-            checksum_mismatches,
-            missing_candidates,
-        )
-    )
+    matches = ArchiveMatches({"uri1": {"a.jpg": candidate}}, {})
 
-    assert matches == []
-    assert checksum_mismatches == []
-    assert missing_candidates == [candidate]
+    assert list(matches) == []
+    assert matches.checksum_mismatches == []
+    assert matches.missing == [candidate]
 
 
 def test_parse_bronze_uri_rejects_non_archive_uri():

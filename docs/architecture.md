@@ -150,6 +150,8 @@ Catalog: isic_ml_data_platform
 
 Training runs themselves live in MLflow, not in a table.
 
+Image reading and decoding in Silver validation and the shard export run in one process on the driver, which is fine at this size (about 40,000 images); [ADR 004](decisions/004-stream-archives-no-blob-storage.md) describes where that stops scaling and how to spread it across Spark workers.
+
 Every stage is a numbered notebook. They run by hand, or as Databricks jobs defined in [`databricks.yml`](../databricks.yml), one job per lifecycle step ([running.md](running.md), [ADR 012](decisions/012-jobs-by-lifecycle.md)).
 
 ## Code map

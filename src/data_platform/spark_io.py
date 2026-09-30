@@ -51,12 +51,12 @@ from pyspark.sql.types import (
 )
 
 from data_platform.files import (
+    ArchiveMatches,
     IMAGE_SUFFIXES,
     count_zip_members_by_suffix,
     format_bronze_uri,
     iter_archive_image_rows,
     raise_on_checksum_mismatches,
-    iter_archive_matches,
     parse_bronze_uri,
 )
 from data_platform.validate import MAX_DIMENSION, MIN_DIMENSION, decode_batch
@@ -116,7 +116,7 @@ def _image_ids_df(spark, image_ids: list[str]):
     return spark.createDataFrame([{"image_id": image_id} for image_id in image_ids], "image_id STRING")
 
 
-def _scratch_table(silver_tables: dict, name: str) -> str:
+def scratch_table_name(silver_tables: dict, name: str) -> str:
     """Build a scratch table name in the same catalog.schema as the Silver tables.
     Overwritten on every run, so nothing here is meant to persist between runs."""
     schema = silver_tables["image_inventory"].rsplit(".", 1)[0]
@@ -440,6 +440,7 @@ def apply_label_normalization(
     rejections: Rejections,
     bronze_uri_col: str = "source_uri",
     controlled_vocabularies: dict[str, tuple[str, ...]] | None = None,
+    scratch_table: str | None = None,
 ):
     """Apply a dataset-specific label-normalization function as a Spark UDF.
 
@@ -456,6 +457,9 @@ def apply_label_normalization(
     never checked — this guards only the label axes meant to be cross-dataset
     comparable (see docs/decisions/002-silver-label-columns-not-map.md).
 
+    `scratch_table`, when given, is where the labelled rows are written once, so the label
+    function isn't recomputed by every later step (use `scratch_table_name`).
+
     Checked on labeled_df (metadata only, before any image bytes are read), so
     it's cheap. A value outside the vocabulary means
     normalize_fn itself has a bug — every row with that underlying source value
@@ -469,6 +473,11 @@ def apply_label_normalization(
     for label_column in label_columns:
         labeled_df = labeled_df.withColumn(label_column, F.col("labels")[label_column])
     labeled_df = labeled_df.drop("labels")
+    if scratch_table is not None:
+        # Written once and read back, so the Python UDF above runs once instead of on every
+        # later action (serverless compute doesn't allow .cache()).
+        labeled_df.write.mode("overwrite").option("overwriteSchema", "true").saveAsTable(scratch_table)
+        labeled_df = labeled_df.sparkSession.table(scratch_table)
 
     assert_controlled_vocabularies(
         labeled_df, controlled_vocabularies or {}, context=f"dataset_key={rejections.dataset_key!r}"
@@ -547,7 +556,7 @@ def validate_images(
 
     staged_path_by_archive_uri = {archive["archive_dbfs_path"]: archive["staged_archive_path"] for archive in archives}
 
-    scratch_table = _scratch_table(silver_tables, "decoded_images")
+    scratch_table = scratch_table_name(silver_tables, "decoded_images")
     total_decoded = 0
 
     def flush(pending_rows: list[dict]) -> None:
@@ -563,8 +572,7 @@ def validate_images(
             writer.saveAsTable(scratch_table)
         total_decoded += len(pending_rows)
 
-    checksum_mismatches: list[dict] = []
-    missing_candidates: list[dict] = []
+    matches = ArchiveMatches(candidates_by_archive_uri, staged_path_by_archive_uri)
     pending_rows: list[dict] = []
 
     # Not a per-row data-quality issue when a mismatch turns up below -- the source
@@ -572,9 +580,7 @@ def validate_images(
     # breaks the immutability invariant every downstream reference (bronze_uri, and
     # eventually a Gold manifest) depends on. See
     # docs/decisions/005-immutable-source-archives-checksum-verified.md.
-    for candidate_row, archive_row in iter_archive_matches(
-        candidates_by_archive_uri, staged_path_by_archive_uri, checksum_mismatches, missing_candidates
-    ):
+    for candidate_row, archive_row in matches:
         pending_rows.append(
             {
                 "image_id": candidate_row["image_id"],
@@ -590,12 +596,12 @@ def validate_images(
     if pending_rows:
         flush(pending_rows)
 
-    raise_on_checksum_mismatches(checksum_mismatches, "the checksum Bronze recorded at ingestion")
+    raise_on_checksum_mismatches(matches.checksum_mismatches, "the checksum Bronze recorded at ingestion")
 
     decoded_df = spark.table(scratch_table) if total_decoded else spark.createDataFrame([], schema=DECODE_OUTPUT_SCHEMA)
 
-    if missing_candidates:
-        unmatched_image_ids = [candidate["image_id"] for candidate in missing_candidates]
+    if matches.missing:
+        unmatched_image_ids = [candidate["image_id"] for candidate in matches.missing]
         missing_ids_df = _image_ids_df(spark, unmatched_image_ids)
         missing_df = label_valid_df.join(missing_ids_df, on="image_id", how="inner")
         rejections.add(
@@ -1102,30 +1108,28 @@ def export_source_metadata_csv(
     return len(metadata_pdf)
 
 
-def print_export_outputs(spark, display, dataset_version: str, per_split_summaries: dict) -> None:
-    """Print/display Gold shard export outputs for one dataset_version: sample count
-    per split, cross-checked against gold.manifest_registry's counts for the same
-    release — raises if they don't match, same "verify, don't just trust
-    construction" posture as print_gold_outputs's leakage check. A shard set should
-    always contain exactly the manifest's rows, never more or fewer.
-    """
-    registry_rows = spark.table("gold.manifest_registry").where(F.col("dataset_version") == dataset_version).collect()
-    if not registry_rows:
-        raise ValueError(
-            f"No gold.manifest_registry row for dataset_version={dataset_version!r} — "
-            "run the Gold manifest notebook (30_create_gold_manifest.ipynb) first."
-        )
-    registry_row = registry_rows[0]
-
+def print_export_outputs(spark, gold_tables: dict, dataset_version: str, per_split_summaries: dict) -> None:
+    """Print each split's written sample count next to the release's row count for that split in
+    gold.manifest_rows, and raise if any differ: a shard export must contain exactly the
+    release's rows."""
     expected_by_split = {
-        "train": registry_row["train_count"],
-        "validation": registry_row["validation_count"],
-        "test": registry_row["test_count"],
+        row["split"]: row["count"]
+        for row in spark.table(gold_tables["manifest_rows"])
+        .where(F.col("dataset_version") == dataset_version)
+        .groupBy("split")
+        .count()
+        .collect()
     }
+    if not expected_by_split:
+        raise ValueError(
+            f"No gold.manifest_rows for dataset_version={dataset_version!r}; run the Gold manifest "
+            "notebook (30_create_gold_manifest) first."
+        )
 
     print(f"Shard export summary for dataset_version={dataset_version!r}:")
     mismatches = []
-    for split, expected_count in expected_by_split.items():
+    for split in sorted(set(expected_by_split) | set(per_split_summaries)):
+        expected_count = expected_by_split.get(split, 0)
         written_count = per_split_summaries.get(split, {}).get("sample_count", 0)
         print(f"  {split}: {written_count} samples written (manifest has {expected_count})")
         if written_count != expected_count:
@@ -1133,8 +1137,8 @@ def print_export_outputs(spark, display, dataset_version: str, per_split_summari
 
     if mismatches:
         raise ValueError(
-            f"Shard sample counts do not match gold.manifest_registry for "
-            f"dataset_version={dataset_version!r}: {mismatches}"
+            f"Shard sample counts don't match the manifest for dataset_version={dataset_version!r} "
+            f"(split, expected, written): {mismatches}"
         )
 
 

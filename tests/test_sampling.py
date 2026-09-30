@@ -85,3 +85,15 @@ def test_select_sample_and_splits_split_distribution_is_roughly_proportional():
     assert total > 0
     train_fraction = image_counts_by_split["train"] / total
     assert 0.5 <= train_fraction <= 0.9
+
+
+def test_select_sample_and_splits_puts_a_rare_label_in_every_split():
+    # Three small groups of a rare label: proportional quotas alone would put all of them in
+    # train, leaving validation and test without the class.
+    groups = [{"group_id": f"benign-{i}", "image_count": 10, "label": "benign"} for i in range(30)]
+    groups += [{"group_id": f"rare-{i}", "image_count": 1, "label": "rare"} for i in range(3)]
+
+    result = select_sample_and_splits(groups, sample_size=400, sample_seed=1, split_seed=1)
+
+    rare_splits = {split for group_id, split in result.items() if group_id.startswith("rare-")}
+    assert rare_splits == {"train", "validation", "test"}

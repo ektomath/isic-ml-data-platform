@@ -49,7 +49,9 @@ def _build_config_root(tmp_path):
     (config_root / "preprocessing").mkdir(parents=True)
     (config_root / "gold" / "training_runs" / "smoke-run.yaml").write_text(_TRAINING_RUN_YAML)
     (config_root / "preprocessing" / "smoke-v1.yaml").write_text(_PREPROCESSING_YAML)
-    config_root.joinpath("storage.yaml").write_text("landing_root: /unused\nstorage_root: /unused\n")
+    config_root.joinpath("storage.yaml").write_text(
+        "landing_root: /unused\nstorage_root: /unused\nmanifest_table: gold.manifest_rows\n"
+    )
     return config_root
 
 

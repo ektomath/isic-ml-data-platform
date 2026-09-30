@@ -141,68 +141,61 @@ def parse_bronze_uri(bronze_uri: str) -> tuple[str, str]:
     return source_archive_uri, archive_member_path
 
 
-def iter_archive_matches(
-    candidates_by_archive_uri: dict[str, dict[str, dict]],
-    staged_path_by_archive_uri: dict,
-    checksum_mismatches: list[dict],
-    missing_candidates: list[dict],
-) -> Iterator[tuple[dict, dict]]:
-    """Yield (candidate_row, archive_row) once per archive member successfully matched
-    and checksum-verified, streaming each referenced archive exactly once. This is the
-    one shared implementation of the archive-matching and checksum-verification pattern
-    used both by Silver validation and Gold shard export -- see
-    docs/decisions/005-immutable-source-archives-checksum-verified.md.
+class ArchiveMatches:
+    """Stream each referenced archive once and yield (candidate_row, archive_row) for every
+    candidate found with the checksum it was recorded with. Shared by Silver validation and
+    the Gold shard export (docs/decisions/005-immutable-source-archives-checksum-verified.md).
 
-    A generator, not a list-returning function, on purpose: don't collect it into a
-    list if a candidate's `image_bytes` (on the yielded archive_row) should be dropped
-    as soon as it's used (e.g. immediately written to a Gold shard) -- the same
-    discipline `iter_archive_image_rows` already documents for its own callers.
+    Loop over it once; afterwards `checksum_mismatches` holds the images whose bytes changed
+    (dicts: candidate, archive_member_path, expected_checksum, actual_checksum) and `missing`
+    the candidate rows not found in their archive. It never raises: callers decide whether a
+    problem fails the run or becomes a rejection. Don't collect the matches into a list if the
+    image bytes on each archive_row should be dropped as soon as they're used.
 
-    `candidates_by_archive_uri` groups candidate rows (each needing at least
-    `source_checksum`) by source_archive_uri and then archive_member_path -- typically
-    built by parsing a set of bronze_uri values with `parse_bronze_uri`.
-    `staged_path_by_archive_uri` maps each source_archive_uri to its locally staged
-    path; an archive_uri missing from this dict contributes only missing candidates,
-    never an error.
-
-    Appends to `checksum_mismatches` (dicts: candidate, archive_member_path,
-    expected_checksum, actual_checksum) and `missing_candidates` (candidate rows never
-    found in their archive) as a side effect during iteration -- read them only after
-    fully exhausting this generator. This function only detects mismatches/missing
-    rows, it never raises; callers decide what that means for them (raise immediately
-    vs. reject-and-continue).
+    `candidates_by_archive_uri` maps source_archive_uri -> archive_member_path -> candidate row
+    (each needing `source_checksum`), typically built by parsing bronze_uri values with
+    `parse_bronze_uri`. `staged_path_by_archive_uri` maps each source_archive_uri to its locally
+    staged copy; an archive missing from it contributes only missing candidates.
     """
-    for source_archive_uri, member_to_candidate in candidates_by_archive_uri.items():
-        staged_path = staged_path_by_archive_uri.get(source_archive_uri)
-        remaining_members = set(member_to_candidate)
 
-        if staged_path is not None:
-            for archive_row in iter_archive_image_rows(
-                staged_path,
-                source_split="",
-                source_archive_uri=source_archive_uri,
-                member_predicate=lambda path, members=remaining_members: path.as_posix() in members,
-            ):
-                remaining_members.discard(archive_row["archive_member_path"])
-                candidate_row = member_to_candidate[archive_row["archive_member_path"]]
-                if archive_row["source_checksum"] != candidate_row["source_checksum"]:
-                    checksum_mismatches.append(
-                        {
-                            "candidate": candidate_row,
-                            "archive_member_path": archive_row["archive_member_path"],
-                            "expected_checksum": candidate_row["source_checksum"],
-                            "actual_checksum": archive_row["source_checksum"],
-                        }
-                    )
-                    continue
-                yield candidate_row, archive_row
+    def __init__(self, candidates_by_archive_uri: dict[str, dict[str, dict]], staged_path_by_archive_uri: dict):
+        self.candidates_by_archive_uri = candidates_by_archive_uri
+        self.staged_path_by_archive_uri = staged_path_by_archive_uri
+        self.checksum_mismatches: list[dict] = []
+        self.missing: list[dict] = []
 
-        missing_candidates.extend(member_to_candidate[member] for member in remaining_members)
+    def __iter__(self) -> Iterator[tuple[dict, dict]]:
+        for source_archive_uri, member_to_candidate in self.candidates_by_archive_uri.items():
+            staged_path = self.staged_path_by_archive_uri.get(source_archive_uri)
+            remaining_members = set(member_to_candidate)
+
+            if staged_path is not None:
+                for archive_row in iter_archive_image_rows(
+                    staged_path,
+                    source_split="",
+                    source_archive_uri=source_archive_uri,
+                    member_predicate=lambda path, members=remaining_members: path.as_posix() in members,
+                ):
+                    remaining_members.discard(archive_row["archive_member_path"])
+                    candidate_row = member_to_candidate[archive_row["archive_member_path"]]
+                    if archive_row["source_checksum"] != candidate_row["source_checksum"]:
+                        self.checksum_mismatches.append(
+                            {
+                                "candidate": candidate_row,
+                                "archive_member_path": archive_row["archive_member_path"],
+                                "expected_checksum": candidate_row["source_checksum"],
+                                "actual_checksum": archive_row["source_checksum"],
+                            }
+                        )
+                        continue
+                    yield candidate_row, archive_row
+
+            self.missing.extend(member_to_candidate[member] for member in remaining_members)
 
 
 def raise_on_checksum_mismatches(checksum_mismatches: list[dict], expected_source: str) -> None:
     """Raise if any streamed image no longer matches its recorded checksum (as collected by
-    iter_archive_matches): the source archive changed after the checksum was recorded, which
+    ArchiveMatches): the source archive changed after the checksum was recorded, which
     breaks reproducibility for everything built from it
     (docs/decisions/005-immutable-source-archives-checksum-verified.md). `expected_source` names
     where the expected checksum came from, for the error message."""
