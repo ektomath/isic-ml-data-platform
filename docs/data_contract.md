@@ -148,7 +148,7 @@ Training lineage lives in MLflow and Unity Catalog, not in a project table ([ADR
 | `training_run_name`, `dataset_version`, `preprocessing_version` | Run tags | From the training-run config |
 | Hyperparameters, `git_commit`, device | Run params | `git_commit` is always set ([ADR 010](decisions/010-record-git-commit-on-releases-and-runs.md)) |
 | `<manifest_table>@<dataset_version>` and `shards@<dataset_version>` | Dataset inputs | Metadata only. The manifest input carries the table's Delta version when run on Databricks; the shards input's digest is a SHA-256 over every split's `index.json`, so it identifies the exact shard files read |
-| `preprocessing_config.json` (and `metadata_preprocessing_config.json` when set) | Artifacts | The full recipes, not just their names |
+| `preprocessing_config.json` | Artifact | The full recipe, not just its name |
 | Metrics, `confusion_matrix.json`, `classification_report.txt` | Metrics and artifacts | Per-epoch and final test metrics |
 | `model` | Artifact | Logged with an input/output signature; registered in Unity Catalog when the config sets `registered_model_name`, with the run's `training_run_name`, `dataset_version`, `preprocessing_version` and `git_commit` copied onto the model version as tags |
 
@@ -156,7 +156,7 @@ Training lineage lives in MLflow and Unity Catalog, not in a project table ([ADR
 
 `notebooks/31_export_gold_shards.ipynb` writes a release's images as MosaicML shards to `<storage_root>/gold/<dataset_version>/shards/<split>/`. Each sample carries `image` (raw encoded bytes), `label`, `image_id`, `dataset_key` and `group_id`. Shards are a rebuildable cache, never a second source of truth ([ADR 004](decisions/004-stream-archives-no-blob-storage.md)); how long they're kept is undecided ([ADR 006](decisions/006-gold-shard-retention-undecided.md)). They're keyed by `dataset_version` only, because the bytes are unprocessed and identical whatever the preprocessing.
 
-If the export config sets `export_metadata_csv: true`, the notebook also writes each dataset's Bronze source metadata for the release's images to `<storage_root>/gold/<dataset_version>/metadata/<dataset_key>_source_metadata.csv`, as future input for a multimodal model ([ADR 009](decisions/009-pin-metadata-feature-config-per-training-run.md)). The baseline classifier doesn't read it.
+If the export config sets `export_metadata_csv: true`, the notebook also writes each dataset's Bronze source metadata for the release's images to `<storage_root>/gold/<dataset_version>/metadata/<dataset_key>_source_metadata.csv`, as future input for a multimodal model ([ADR 009](decisions/009-metadata-features-wait-for-a-model.md)). The baseline classifier doesn't read it.
 
 A dataset card for each release is planned but not built yet.
 
@@ -171,7 +171,6 @@ Pins one `dataset_version` to one `preprocessing_version`, plus the hyperparamet
 | `training_run_name` | string | Name the file is referenced by |
 | `dataset_version` | string | Gold release to train on |
 | `preprocessing_version` | string | Which `config/preprocessing/<name>.yaml` to apply |
-| `metadata_preprocessing_version` | string, optional | Which `config/metadata_preprocessing/<name>.yaml` to apply; omitted for image-only runs |
 | `label_values` | list[string] | Fixes the class-index mapping (index = position in the list) |
 | `architecture` | string | Only `resnet18` is implemented |
 | `pretrained` | bool | Start from ImageNet weights |
@@ -194,21 +193,6 @@ A reusable image preprocessing recipe, applied only at training and inference ti
 | `augmentation` | `{train: {...}, eval: [...]}` | `train` supports `random_horizontal_flip` and `random_rotation_degrees`. `eval` is ignored: validation and test images always get resize, center crop and normalize only |
 | `random_seed` | int | Seeds PyTorch and the shard reader's shuffle order |
 | `framework_runtime_notes` | string, optional | Free text describing the transform order |
-
-### `config/metadata_preprocessing/<name>.yaml`
-
-A versioned recipe for turning exported Bronze metadata into a fixed-length feature vector for a multimodal model ([ADR 009](decisions/009-pin-metadata-feature-config-per-training-run.md)). Columns not listed under `fields` are dropped. Loaded by `ml.metadata_preprocessing.load_metadata_preprocessing_config`; not used by any training run yet. The only recipe so far, `baseline-v1`, is a template: its category lists haven't been checked against real exported values, and matching is exact and case-sensitive, so a mismatch silently lands in the unknown slot.
-
-| Field | Type | Notes |
-|---|---|---|
-| `metadata_preprocessing_version` | string | Name the file is referenced by |
-| `fields[].name` | string | Bronze metadata column, e.g. `age_approx` |
-| `fields[].kind` | string | `numeric` or `categorical` |
-| `fields[].missing_value` | float | Numeric only: value used for null or unparseable input |
-| `fields[].categories` | list[string] | Categorical only: fixed vocabulary; order fixes each one-hot slot |
-| `fields[].unknown_category` | string | Categorical only: a descriptive name for the extra last slot that null or unrecognized values land in. Required, but the value itself isn't used |
-| `fields[].source_columns` | `{dataset_key: column}`, optional | Per-dataset column name, when datasets name the same field differently |
-| `fields[].value_map` | `{dataset_key: {raw: canonical}}`, optional | Per-dataset value remapping onto the canonical vocabulary |
 
 ## Rules
 

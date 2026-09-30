@@ -9,7 +9,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from data_platform.dataset_layout import load_yaml_config
-from ml.metadata_preprocessing import load_metadata_preprocessing_config
 from ml.preprocessing import load_preprocessing_config, require_fields
 
 TRAINING_RUN_REQUIRED_FIELDS = (
@@ -39,8 +38,6 @@ class TrainingRunSpec:
     optimizer: str
     mlflow_experiment: str | None
     registered_model_name: str | None
-    metadata_preprocessing_version: str | None
-    metadata_preprocessing_config: dict | None
 
 
 def load_training_run_config(config_root: str | Path, training_run_name: str) -> dict:
@@ -55,18 +52,9 @@ def load_training_run_config(config_root: str | Path, training_run_name: str) ->
 def resolve_training_run(config_root: str | Path, training_run_name: str) -> TrainingRunSpec:
     """Load and check a training run's config and the preprocessing config it names, and return the
     resolved spec. Raises ValueError on a missing or malformed field.
-
-    `metadata_preprocessing_version` is optional; when set, its config is loaded and checked too,
-    for models that also take tabular metadata (ADR 009).
     """
     config = load_training_run_config(config_root, training_run_name)
     preprocessing_config = load_preprocessing_config(config_root, config["preprocessing_version"])
-    metadata_preprocessing_version = config.get("metadata_preprocessing_version")
-    metadata_preprocessing_config = (
-        load_metadata_preprocessing_config(config_root, metadata_preprocessing_version)
-        if metadata_preprocessing_version is not None
-        else None
-    )
 
     return TrainingRunSpec(
         training_run_name=config["training_run_name"],
@@ -82,6 +70,4 @@ def resolve_training_run(config_root: str | Path, training_run_name: str) -> Tra
         optimizer=config.get("optimizer", "adam"),
         mlflow_experiment=config.get("mlflow_experiment"),
         registered_model_name=config.get("registered_model_name"),
-        metadata_preprocessing_version=metadata_preprocessing_version,
-        metadata_preprocessing_config=metadata_preprocessing_config,
     )

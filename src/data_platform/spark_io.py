@@ -938,8 +938,8 @@ def export_source_metadata_csv(
 
     This metadata otherwise stays in Bronze. It's exported beside the shards for subgroup analysis,
     or for a model that also takes tabular input, joined on image_id. There's one CSV per dataset
-    because their metadata columns differ; each row gets a dataset_key column, which
-    ml.metadata_preprocessing uses to reconcile columns across datasets (ADR 009).
+    because their metadata columns differ; each row gets a dataset_key column so rows from several
+    datasets can be told apart (ADR 009).
 
     Written with pandas so the output is one file rather than a folder of Spark part files; the rows
     are small.

@@ -14,7 +14,7 @@ If you only read two, read 004 and 007.
 | [006](006-gold-shard-retention-undecided.md) | How long Gold shard exports are kept is deliberately undecided |
 | [007](007-pin-data-and-preprocessing-per-training-run.md) | Each training run pins one dataset version and one preprocessing recipe, and records its data in MLflow and Unity Catalog |
 | [008](008-baseline-model-resnet18.md) | Baseline model is a pretrained PyTorch ResNet-18 |
-| [009](009-pin-metadata-feature-config-per-training-run.md) | Metadata feature engineering is pinned per training run too |
+| [009](009-metadata-features-wait-for-a-model.md) | Metadata is exported with each release, but feature encoding waits for a model that uses it |
 | [010](010-record-git-commit-on-releases-and-runs.md) | Gold releases and training runs record their Git commit, and refuse to run without one |
 | [011](011-shared-label-hierarchy.md) | Labels are combined across datasets through one shared hierarchy; each Gold release picks a level (not yet implemented) |
 | [012](012-jobs-by-lifecycle.md) | The notebooks run as one Databricks job per lifecycle step, defined in an Asset Bundle |

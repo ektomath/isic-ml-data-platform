@@ -21,7 +21,7 @@ The ISIC Archive already publishes a shared hierarchical diagnosis taxonomy, whi
 ## Alternatives considered
 
 - **A Silver label column for each combination or use case.** The number of columns grows with the combinations, and every new release could need a schema change.
-- **Unify labels in the metadata preprocessing config ([ADR 009](009-pin-metadata-feature-config-per-training-run.md)).** That config turns metadata into model input features and only renames columns or remaps values one-to-one. It doesn't touch training targets and can't collapse a hierarchy.
+- **Unify labels when metadata is encoded for a model ([ADR 009](009-metadata-features-wait-for-a-model.md)).** That encoding produces model input features, not training targets, so it's the wrong place to collapse a label hierarchy.
 - **Map labels per Gold release.** It's flexible, but the same dataset would be mapped again and differently in every release, and releases would stop being comparable.
 
 ## Consequences

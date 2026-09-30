@@ -50,23 +50,6 @@ def _build_resnet18(num_classes: int, pretrained: bool) -> nn.Module:
 # below in spirit; add a new architecture by adding a builder function and an entry here.
 _ARCHITECTURE_BUILDERS = {"resnet18": _build_resnet18}
 
-# Architectures that take image input only. Every architecture is image-only today; a
-# multimodal one that consumes metadata features stays out of this set.
-_IMAGE_ONLY_ARCHITECTURES = {"resnet18"}
-
-
-def check_metadata_preprocessing_is_used(architecture: str, metadata_preprocessing_version: str | None) -> None:
-    """Raise if a training-run config pins a metadata_preprocessing_version for an image-only
-    architecture. The model would never see those features, so recording the version would
-    claim a provenance the run doesn't have (docs/decisions/009-pin-metadata-feature-config-per-training-run.md)."""
-    if metadata_preprocessing_version is not None and architecture in _IMAGE_ONLY_ARCHITECTURES:
-        raise ValueError(
-            f"Training-run config sets metadata_preprocessing_version={metadata_preprocessing_version!r}, "
-            f"but architecture {architecture!r} uses images only and would ignore it. Remove the field, "
-            "or use an architecture that consumes metadata features."
-        )
-
-
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Train the baseline Gold classifier.")
     parser.add_argument(
@@ -295,7 +278,6 @@ def prepare_run(
     MLflow setup or data loading."""
     resolved_commit = resolve_git_commit(explicit_commit=git_commit)
     spec = resolve_training_run(config_root, training_run_name)
-    check_metadata_preprocessing_is_used(spec.architecture, spec.metadata_preprocessing_version)
 
     storage_config = load_yaml_config(config_root / "storage.yaml")
     base_shards_root = resolve_shards_root(shards_root, storage_config, spec.dataset_version)
@@ -343,12 +325,10 @@ def build_loaders(run: PreparedRun, num_workers: int) -> dict:
 
 
 def log_run_metadata(run: PreparedRun) -> None:
-    """Record the run's inputs, recipes and parameters on the active MLflow run. The full recipes
-    are logged, not just their names: a recipe file edited in place keeps its name."""
+    """Record the run's inputs, recipe and parameters on the active MLflow run. The full recipe is
+    logged, not just its name: a recipe file edited in place keeps its name."""
     log_training_inputs(run.spec.dataset_version, run.shards_root, run.manifest_table)
     mlflow.log_dict(run.spec.preprocessing_config, "preprocessing_config.json")
-    if run.spec.metadata_preprocessing_config is not None:
-        mlflow.log_dict(run.spec.metadata_preprocessing_config, "metadata_preprocessing_config.json")
     mlflow.log_params(
         {
             "architecture": run.spec.architecture,

@@ -31,28 +31,11 @@ optimizer: adam
 """
 
 
-_METADATA_PREPROCESSING_YAML = """
-metadata_preprocessing_version: fixture-v1
-fields:
-  - name: age_approx
-    kind: numeric
-    missing_value: -1.0
-"""
-
-
-def _build_config_root(
-    tmp_path,
-    training_run_yaml=_TRAINING_RUN_YAML,
-    preprocessing_yaml=_PREPROCESSING_YAML,
-    metadata_preprocessing_yaml=None,
-):
+def _build_config_root(tmp_path, training_run_yaml=_TRAINING_RUN_YAML, preprocessing_yaml=_PREPROCESSING_YAML):
     (tmp_path / "gold" / "training_runs").mkdir(parents=True)
     (tmp_path / "preprocessing").mkdir(parents=True)
     (tmp_path / "gold" / "training_runs" / "fixture-run.yaml").write_text(training_run_yaml)
     (tmp_path / "preprocessing" / "fixture-v1.yaml").write_text(preprocessing_yaml)
-    if metadata_preprocessing_yaml is not None:
-        (tmp_path / "metadata_preprocessing").mkdir(parents=True)
-        (tmp_path / "metadata_preprocessing" / "fixture-v1.yaml").write_text(metadata_preprocessing_yaml)
     return tmp_path
 
 
@@ -96,8 +79,6 @@ def test_resolve_training_run_loads_both_configs(tmp_path):
     assert spec.optimizer == "adam"
     assert spec.mlflow_experiment is None
     assert spec.registered_model_name is None
-    assert spec.metadata_preprocessing_version is None
-    assert spec.metadata_preprocessing_config is None
     assert spec.preprocessing_config["random_seed"] == 7
 
 
@@ -108,35 +89,6 @@ def test_resolve_training_run_reads_registered_model_name_when_set(tmp_path):
     spec = resolve_training_run(config_root, "fixture-run")
 
     assert spec.registered_model_name == "fixture_catalog.gold.fixture_classifier"
-
-
-def test_resolve_training_run_reads_metadata_preprocessing_config_when_version_is_set(tmp_path):
-    training_run_yaml = _TRAINING_RUN_YAML + "metadata_preprocessing_version: fixture-v1\n"
-    config_root = _build_config_root(
-        tmp_path, training_run_yaml=training_run_yaml, metadata_preprocessing_yaml=_METADATA_PREPROCESSING_YAML
-    )
-
-    spec = resolve_training_run(config_root, "fixture-run")
-
-    assert spec.metadata_preprocessing_version == "fixture-v1"
-    assert spec.metadata_preprocessing_config["fields"][0]["name"] == "age_approx"
-
-
-def test_resolve_training_run_raises_on_malformed_metadata_preprocessing_config(tmp_path):
-    incomplete_metadata_preprocessing_yaml = "metadata_preprocessing_version: fixture-v1\n"
-    training_run_yaml = _TRAINING_RUN_YAML + "metadata_preprocessing_version: fixture-v1\n"
-    config_root = _build_config_root(
-        tmp_path,
-        training_run_yaml=training_run_yaml,
-        metadata_preprocessing_yaml=incomplete_metadata_preprocessing_yaml,
-    )
-
-    try:
-        resolve_training_run(config_root, "fixture-run")
-    except ValueError as error:
-        assert "fields" in str(error)
-    else:
-        raise AssertionError("Expected malformed metadata preprocessing config to raise")
 
 
 def test_resolve_training_run_raises_on_malformed_preprocessing_config(tmp_path):
