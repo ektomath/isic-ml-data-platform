@@ -1,0 +1,17 @@
+# Databricks Asset Bundle: the platform's jobs, defined in the repo.
+#
+#   databricks bundle deploy          upload the code and create/update the jobs
+#   databricks bundle run <job>       run one job, e.g. build_release
+#
+# Uses the workspace from your Databricks CLI login (~/.databrickscfg or DATABRICKS_HOST).
+# See docs/running.md.
+bundle:
+  name: isic_ml_data_platform
+
+include:
+  - resources/*.yml
+
+targets:
+  dev:
+    default: true
+    mode: development

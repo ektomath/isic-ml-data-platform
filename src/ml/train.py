@@ -275,6 +275,7 @@ def run_training(
     registry_uri: str | None = None,
     device: str | None = None,
     num_workers: int = 0,
+    git_commit: str | None = None,
 ) -> str:
     """The reusable orchestrator -- identical whether called from a CLI/local script or a
     Databricks notebook cell (`notebooks/40_train_baseline_classifier.ipynb`'s training cell). Returns
@@ -286,11 +287,14 @@ def run_training(
     successive training runs across different architectures/hyperparameters accumulate as
     versions of one named model instead of only being addressable by run_id. Omitted entirely
     (the default) if neither is set -- the model is still logged to the run either way.
+
+    `git_commit` overrides the commit lookup, for jobs deployed as a bundle (see
+    data_platform.provenance.resolve_git_commit).
     """
     # Ordered deliberately to fail fast: cheap/local checks first, then the network-dependent
     # MLflow setup, and only then the expensive part (reading every split's shard index).
     config_root = Path(config_root) if config_root is not None else DEFAULT_CONFIG_ROOT
-    git_commit = resolve_git_commit()
+    git_commit = resolve_git_commit(explicit_commit=git_commit)
     spec = resolve_training_run(config_root, training_run_name)
     check_metadata_preprocessing_is_used(spec.architecture, spec.metadata_preprocessing_version)
     random_seed = spec.preprocessing_config["random_seed"]

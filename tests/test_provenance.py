@@ -82,3 +82,10 @@ def test_databricks_lookup_reports_a_missing_git_folder():
 
     assert commit is None
     assert "no Git folder found" in error
+
+
+def test_resolve_git_commit_uses_an_explicit_commit_first(tmp_path, monkeypatch):
+    # A bundle-deployed job passes the commit it deployed; no checkout is needed then.
+    monkeypatch.delenv("DATABRICKS_RUNTIME_VERSION", raising=False)
+
+    assert resolve_git_commit(tmp_path, explicit_commit="abc123") == "abc123"

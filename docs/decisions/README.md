@@ -17,3 +17,4 @@ If you only read two, read 004 and 007.
 | [009](009-pin-metadata-feature-config-per-training-run.md) | Metadata feature engineering is pinned per training run too |
 | [010](010-record-git-commit-on-releases-and-runs.md) | Gold releases and training runs record their Git commit, and refuse to run without one |
 | [011](011-shared-label-hierarchy.md) | Labels are combined across datasets through one shared hierarchy; each Gold release picks a level (not yet implemented) |
+| [012](012-jobs-by-lifecycle.md) | The notebooks run as one Databricks job per lifecycle step, defined in an Asset Bundle |

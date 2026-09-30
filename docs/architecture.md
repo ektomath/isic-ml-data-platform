@@ -150,7 +150,7 @@ Catalog: isic_ml_data_platform
 
 Training runs themselves live in MLflow, not in a table.
 
-Every stage is a numbered notebook, run by hand in order ([running.md](running.md)). Scheduling them as Databricks Jobs is future work.
+Every stage is a numbered notebook. They run by hand, or as Databricks jobs defined in [`databricks.yml`](../databricks.yml), one job per lifecycle step ([running.md](running.md), [ADR 012](decisions/012-jobs-by-lifecycle.md)).
 
 ## Code map
 

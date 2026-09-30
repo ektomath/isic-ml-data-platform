@@ -1,0 +1,84 @@
+# One job per thing you do, each started by hand when you need it (ADR 012):
+#   setup                   once per workspace
+#   ingest_<dataset>        when a dataset is onboarded, or its Bronze/Silver is rebuilt
+#   build_release           whenever you want a new training set (Gold manifest + shards)
+#   train                   whenever you want to train a model
+# Notebook tasks without a cluster run on serverless compute.
+
+resources:
+  jobs:
+    setup:
+      name: setup
+      tasks:
+        - task_key: setup_storage_and_shared_tables
+          notebook_task:
+            notebook_path: ../notebooks/00_setup_storage_and_shared_tables.ipynb
+
+    ingest_isic_2019:
+      name: ingest_isic_2019
+      tasks:
+        - task_key: setup_tables_and_folders
+          notebook_task:
+            notebook_path: ../notebooks/isic_2019/05_setup_tables_and_folders.ipynb
+        - task_key: bronze_ingest
+          depends_on:
+            - task_key: setup_tables_and_folders
+          notebook_task:
+            notebook_path: ../notebooks/isic_2019/10_bronze_ingest.ipynb
+        - task_key: silver_validate
+          depends_on:
+            - task_key: bronze_ingest
+          notebook_task:
+            notebook_path: ../notebooks/isic_2019/20_silver_validate.ipynb
+
+    ingest_milk10k:
+      name: ingest_milk10k
+      tasks:
+        - task_key: setup_tables_and_folders
+          notebook_task:
+            notebook_path: ../notebooks/milk10k/05_setup_tables_and_folders.ipynb
+        - task_key: bronze_ingest
+          depends_on:
+            - task_key: setup_tables_and_folders
+          notebook_task:
+            notebook_path: ../notebooks/milk10k/10_bronze_ingest.ipynb
+        - task_key: silver_validate
+          depends_on:
+            - task_key: bronze_ingest
+          notebook_task:
+            notebook_path: ../notebooks/milk10k/20_silver_validate.ipynb
+
+    build_release:
+      name: build_release
+      parameters:
+        # Names both config/gold/manifests/<release_name>.yaml and config/gold/exports/<release_name>.yaml.
+        - name: release_name
+          default: sample-v1
+        # A published release is only rebuilt when this is "true".
+        - name: overwrite_existing_release
+          default: "false"
+        # The deployed code has no Git folder, so the bundle passes the commit it deployed.
+        - name: git_commit
+          default: ${bundle.git.commit}
+      tasks:
+        - task_key: create_gold_manifest
+          notebook_task:
+            notebook_path: ../notebooks/30_create_gold_manifest.ipynb
+        - task_key: export_gold_shards
+          depends_on:
+            - task_key: create_gold_manifest
+          notebook_task:
+            notebook_path: ../notebooks/31_export_gold_shards.ipynb
+
+    train:
+      name: train
+      parameters:
+        # Names config/gold/training_runs/<training_run_name>.yaml.
+        - name: training_run_name
+          default: sample-v1-resnet18
+        - name: git_commit
+          default: ${bundle.git.commit}
+      tasks:
+        - task_key: train_baseline_classifier
+          notebook_task:
+            notebook_path: ../notebooks/40_train_baseline_classifier.ipynb

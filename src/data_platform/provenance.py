@@ -30,8 +30,14 @@ class GitCommitUnavailableError(RuntimeError):
     """Raised when no source can say which commit is running."""
 
 
-def resolve_git_commit(repo_root: str | Path = REPO_ROOT) -> str:
-    """Return the running code's commit hash, or raise GitCommitUnavailableError."""
+def resolve_git_commit(repo_root: str | Path = REPO_ROOT, explicit_commit: str | None = None) -> str:
+    """Return the running code's commit hash, or raise GitCommitUnavailableError.
+
+    `explicit_commit` wins when given: a job deployed with a Databricks Asset Bundle runs a
+    copy of the files rather than a Git folder, so the bundle passes the commit it deployed
+    (`${bundle.git.commit}`) as a job parameter instead."""
+    if explicit_commit:
+        return explicit_commit
     repo_root = Path(repo_root)
     attempts = []
 

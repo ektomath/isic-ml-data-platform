@@ -1,6 +1,6 @@
 # Running the pipeline
 
-How to set the project up and run it, notebook by notebook. For what each step does and why, see [architecture.md](architecture.md).
+How to set the project up and run it, notebook by notebook or as Databricks jobs. For what each step does and why, see [architecture.md](architecture.md).
 
 ## On Databricks
 
@@ -53,6 +53,29 @@ The manifest config sets the datasets, label column, sample size, seeds and spli
 | [`40_train_baseline_classifier`](../notebooks/40_train_baseline_classifier.ipynb) | `TRAINING_RUN_NAME`, pointing at a file in [`config/gold/training_runs/`](../config/gold/training_runs/) | An MLflow run and, if the config sets `registered_model_name`, a new model version in Unity Catalog |
 
 Its first cell installs PyTorch and the other training packages, which takes a few minutes. To try other hyperparameters or another preprocessing recipe, add a new training-run config rather than editing values in place. To train on your own machine instead, see [Locally](#locally-tests-and-training-on-your-own-machine) below.
+
+## As Databricks jobs
+
+The same notebooks are also defined as jobs in [`databricks.yml`](../databricks.yml) and [`resources/jobs.yml`](../resources/jobs.yml), one per step you actually do ([ADR 012](decisions/012-jobs-by-lifecycle.md)). Nothing runs on a schedule; you start each job when you need it.
+
+| Job | Runs | When | Parameters |
+|---|---|---|---|
+| `setup` | 00 | Once per workspace | |
+| `ingest_isic_2019`, `ingest_milk10k` | 05, 10, 20 for that dataset | When you onboard a dataset or rebuild its Bronze and Silver | |
+| `build_release` | 30, 31 | Whenever you want a new training set | `release_name` (default `sample-v1`), `overwrite_existing_release` (default `false`) |
+| `train` | 40 | Whenever you want to train | `training_run_name` (default `sample-v1-resnet18`) |
+
+With the [Databricks CLI](https://docs.databricks.com/dev-tools/cli/) logged in to your workspace, from a clean checkout of the repo:
+
+```bash
+databricks bundle deploy                  # upload the code, create or update the jobs
+databricks bundle run setup               # once
+databricks bundle run ingest_isic_2019    # after uploading its archives
+databricks bundle run build_release --params release_name=sample-v1
+databricks bundle run train --params training_run_name=sample-v1-resnet18
+```
+
+The catalog step and archive uploads above still apply. Jobs record the git commit that was deployed, so deploy from a checkout without uncommitted changes.
 
 ## Locally: tests, and training on your own machine
 

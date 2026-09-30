@@ -44,7 +44,7 @@ A few of the more interesting calls, out of the [full decision log](docs/decisio
 
 ## Getting started
 
-The full setup, locally and on Databricks, is in [docs/running.md](docs/running.md).
+On Databricks, the notebooks run by hand or as jobs defined in [`databricks.yml`](databricks.yml), one per step: set up, ingest a dataset, build a training release, train. The full setup is in [docs/running.md](docs/running.md).
 
 ## Source data
 
