@@ -54,7 +54,7 @@ Uses the [ISIC Archive](https://www.isic-archive.com/) and the [ISIC Archive API
 
 Built with heavy use of AI tools for code and documentation, generated in small iterative chunks rather than one large unsupervised pass. I make the architectural decisions myself and take final responsibility for the result. Here is what I have and haven't checked personally:
 
-- **Reviewed and edited by me:** all code in `src/`, the configs, the notebooks, the docs and the ADRs.
+- **Reviewed by me:** the architecture and design decisions, the configs, the docs and the ADRs. I've read through the code in `src/` and the notebooks, but not every line.
 - **Verified by running it:** Bronze and Silver, rerun on Databricks against real ISIC data for both onboarded datasets, and the Gold notebooks, run to produce training shards.
 - **Not reviewed line by line:** the test suite in `tests/`. I've checked what it covers and that it passes, but I haven't read every assertion.
 - **Not verified end to end:** baseline classifier training (`src/ml/`). The code is complete and passes a local smoke test on tiny fixture shards, but I never ran it on Databricks because my credits ran out first. Treat anything the docs say about real training runs as untested.

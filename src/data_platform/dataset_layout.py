@@ -111,3 +111,18 @@ def build_layout(dataset_config: dict) -> dict:
             "rejected_records": "silver.rejected_records",
         },
     }
+
+
+def load_dataset(config_root: str | Path, dataset_key: str) -> dict:
+    """Everything a dataset's notebooks need, from its config and config/storage.yaml:
+    build_layout's paths and tables, plus `config` (the dataset config with the storage roots
+    merged in) and `archives` (resolve_archive_paths' output).
+    """
+    config_root = Path(config_root)
+    config = load_dataset_config(config_root / "bronze" / "datasets" / f"{dataset_key}.yaml")
+    storage_config = load_storage_config(config_root)
+    config["landing_root"] = storage_config["landing_root"]
+    config["storage_root"] = storage_config["storage_root"]
+    layout = build_layout(config)
+    archives = resolve_archive_paths(config["archives"], layout["landing_paths"], layout["bronze_paths"])
+    return {**layout, "config": config, "archives": archives}
