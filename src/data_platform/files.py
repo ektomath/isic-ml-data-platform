@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import logging
 import hashlib
+import logging
 import shutil
 import zipfile
+from collections.abc import Callable, Iterator
 from pathlib import Path
-from typing import Callable, Iterator
 
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png"}
 

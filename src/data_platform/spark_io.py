@@ -33,9 +33,8 @@ back instead, which works everywhere including serverless.
 
 from __future__ import annotations
 
-import logging
 import functools
-import time
+import logging
 from collections import defaultdict
 
 import pandas as pd
@@ -52,13 +51,13 @@ from pyspark.sql.types import (
 )
 
 from data_platform.files import (
-    ArchiveMatches,
     IMAGE_SUFFIXES,
+    ArchiveMatches,
     count_zip_members_by_suffix,
     format_bronze_uri,
     iter_archive_image_rows,
-    raise_on_checksum_mismatches,
     parse_bronze_uri,
+    raise_on_checksum_mismatches,
 )
 from data_platform.validate import MAX_DIMENSION, MIN_DIMENSION, decode_batch
 
@@ -180,10 +179,14 @@ def assert_controlled_vocabularies(df, controlled_vocabularies: dict[str, tuple[
 
     unknown_columns = set(controlled_vocabularies) - set(df.columns)
     if unknown_columns:
-        raise ValueError(f"controlled_vocabularies references column(s) not present on the DataFrame: {sorted(unknown_columns)}")
+        raise ValueError(
+            f"controlled_vocabularies references column(s) not present on the DataFrame: {sorted(unknown_columns)}"
+        )
 
     agg_exprs = [
-        F.collect_set(F.when(F.col(column).isNotNull() & ~F.col(column).isin(*allowed_values), F.col(column))).alias(column)
+        F.collect_set(
+            F.when(F.col(column).isNotNull() & ~F.col(column).isin(*allowed_values), F.col(column))
+        ).alias(column)
         for column, allowed_values in controlled_vocabularies.items()
     ]
     result = df.agg(*agg_exprs).collect()[0]
@@ -744,7 +747,13 @@ def write_silver_dataset(
 
 
 def print_silver_outputs(
-    spark, display, silver_tables: dict, label_columns: list[str], dataset_key: str, image_inventory_df, leakage_groups_df
+    spark,
+    display,
+    silver_tables: dict,
+    label_columns: list[str],
+    dataset_key: str,
+    image_inventory_df,
+    leakage_groups_df,
 ) -> None:
     """Print/display accepted-vs-rejected summary stats for one dataset's Silver
     validation run: rejection reasons, validation status, per-label-column
@@ -1032,7 +1041,7 @@ def print_gold_outputs(
 
 # ============================================================================
 # Gold export pipeline — load_manifest_rows_for_export, export_source_metadata_csv,
-# print_export_outputs, remove_expired_exports, called in that order from
+# print_export_outputs, called in that order from
 # notebooks/31_export_gold_shards.ipynb, after a dataset_version's manifest rows
 # already exist (written by write_gold_manifest_rows above). The actual
 # shard-packing step between these two, `write_gold_shards_for_splits`, needs no
@@ -1143,35 +1152,3 @@ def print_export_outputs(spark, gold_tables: dict, dataset_version: str, per_spl
             f"Shard sample counts don't match the manifest for dataset_version={dataset_version!r} "
             f"(split, expected, written): {mismatches}"
         )
-
-
-def remove_expired_exports(dbutils, gold_root: str, max_age_days: int) -> list[str]:
-    """Delete <dataset_version> shard-export subdirectories of gold_root whose most
-    recent modification is older than max_age_days. Returns the list of paths removed.
-
-    General-purpose utility, not wired into any default flow and not scheduled —
-    shard retention is an open question, not a decided policy (see
-    docs/decisions/006-gold-shard-retention-undecided.md). Deleting a stale export
-    costs nothing but a future rerun of 31_export_gold_shards.ipynb to rebuild it, since
-    shards are always a derived, fully rebuildable cache
-    (docs/decisions/004-stream-archives-no-blob-storage.md) — but nothing in this
-    project currently calls this on any automatic basis. Call it directly, with an
-    explicit max_age_days, whenever/if a retention decision actually gets made.
-
-    Takes `dbutils`, not `spark` — a Databricks-runtime-injected object like `spark`,
-    but not "Spark" itself; this lives here rather than in a pure-Python module for
-    that reason, even though it needs no Spark session.
-    """
-    cutoff_seconds = max_age_days * 86400
-    now = time.time()
-    removed = []
-
-    for entry in dbutils.fs.ls(gold_root):
-        if not entry.isDir():
-            continue
-        age_seconds = now - (entry.modificationTime / 1000)
-        if age_seconds >= cutoff_seconds:
-            dbutils.fs.rm(entry.path, recurse=True)
-            removed.append(entry.path)
-
-    return removed

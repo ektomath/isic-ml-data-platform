@@ -1,8 +1,8 @@
-from torchvision.transforms.functional import pil_to_tensor
-
 from archive_fixtures import build_archive as _build_archive
 from archive_fixtures import checksum as _checksum
 from archive_fixtures import jpeg_bytes as _jpeg_bytes
+from torchvision.transforms.functional import pil_to_tensor
+
 from data_platform.shard_export import write_gold_shards_for_splits
 from ml.dataset import GoldShardDataset, build_dataloader, label_to_index_map
 

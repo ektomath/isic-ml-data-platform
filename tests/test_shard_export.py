@@ -1,9 +1,8 @@
-from streaming import StreamingDataset
-
 from archive_fixtures import build_archive as _build_archive
 from archive_fixtures import checksum as _checksum
-from data_platform.shard_export import write_gold_shards_for_splits
+from streaming import StreamingDataset
 
+from data_platform.shard_export import write_gold_shards_for_splits
 
 # mosaicml-streaming's MDSWriter parses `out` with urllib.parse.urlparse to tell a local
 # path from a cloud URL, and on Windows that misreads an absolute `C:\...` path's drive

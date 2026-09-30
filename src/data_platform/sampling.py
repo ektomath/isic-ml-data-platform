@@ -110,7 +110,7 @@ def select_sample_and_splits(
     split_by_group: dict[str, str] = {}
     for label, label_groups in selected_groups_by_label.items():
         label_total = sum(g["image_count"] for g in label_groups)
-        split_quotas = {name: round(label_total * ratio) for name, ratio in zip(split_names, split_ratios)}
+        split_quotas = {name: round(label_total * ratio) for name, ratio in zip(split_names, split_ratios, strict=True)}
 
         sorted_groups = sorted(label_groups, key=lambda g: g["group_id"])
         random.Random(f"{split_seed}:split:{label}").shuffle(sorted_groups)

@@ -1,10 +1,10 @@
 import zipfile
 
 import mlflow
-from mlflow import MlflowClient
-
 from archive_fixtures import checksum as _checksum
 from archive_fixtures import jpeg_bytes as _jpeg_bytes
+from mlflow import MlflowClient
+
 from data_platform.shard_export import write_gold_shards_for_splits
 from ml.train import run_training, shard_digest
 

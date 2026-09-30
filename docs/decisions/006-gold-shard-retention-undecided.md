@@ -4,7 +4,7 @@ Status: accepted. Covers the shard exports described in [004](004-stream-archive
 
 ## Summary
 
-Shard exports are a rebuildable cache, but how long to keep them is deliberately left open until there's real usage to base it on. Nothing deletes shards automatically, and a cleanup utility exists for when a policy is chosen. The cost is that exports accumulate until someone deletes them.
+Shard exports are a rebuildable cache, but how long to keep them is deliberately left open until there's real usage to base it on. Nothing deletes shards automatically. The cost is that exports accumulate until someone deletes them.
 
 ## Context
 
@@ -14,7 +14,6 @@ Shards can always be rebuilt from a published manifest and the source archives, 
 
 - Retention is neither "short-lived" nor "permanent" by default; it hasn't been chosen.
 - Export configs have no `retention_days`, and the export notebook runs no cleanup step.
-- `remove_expired_exports` stays available, to call with an explicit age once a policy is decided.
 - No lifecycle policy is planned.
 
 ## Consequences

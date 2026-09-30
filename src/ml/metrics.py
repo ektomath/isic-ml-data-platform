@@ -23,7 +23,9 @@ def compute_classification_metrics(y_true: Sequence[int], y_pred: Sequence[int],
 
     return {
         "balanced_accuracy": float(balanced_accuracy_score(y_true, y_pred)),
-        "per_class_recall": {label: float(recall) for label, recall in zip(label_values, per_class_recall)},
+        "per_class_recall": {
+            label: float(recall) for label, recall in zip(label_values, per_class_recall, strict=True)
+        },
         "confusion_matrix": confusion_matrix(y_true, y_pred, labels=labels).tolist(),
         "classification_report": classification_report(
             y_true, y_pred, labels=labels, target_names=label_values, zero_division=0

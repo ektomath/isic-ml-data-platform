@@ -28,11 +28,11 @@ from mlflow.data.uc_volume_dataset_source import UCVolumeDatasetSource
 from mlflow.models import infer_signature
 from torch import nn
 
+from data_platform import configure_logging
 from data_platform.dataset_layout import join_storage_path, load_yaml_config
+from data_platform.provenance import resolve_git_commit
 from ml.dataset import build_dataloader, label_to_index_map
 from ml.metrics import compute_classification_metrics
-from data_platform import configure_logging
-from data_platform.provenance import resolve_git_commit
 from ml.mlflow_utils import configure_mlflow_tracking, configure_model_registry
 from ml.preprocessing import build_transforms
 from ml.training_run import TrainingRunSpec, resolve_training_run
@@ -74,18 +74,33 @@ def check_metadata_preprocessing_is_used(architecture: str, metadata_preprocessi
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Train the baseline Gold classifier.")
-    parser.add_argument("--training-run-name", required=True, help="Name of a config/gold/training_runs/<name>.yaml")
+    parser.add_argument(
+        "--training-run-name", required=True, help="Name of a config/gold/training_runs/<name>.yaml"
+    )
     parser.add_argument("--config-root", default=None, help="Defaults to the repo's config/ directory")
-    parser.add_argument("--shards-root", default=None, help="Local directory or Volume path holding train/validation/test shard dirs; defaults to <storage_root>/gold/<dataset_version>/shards")
-    parser.add_argument("--mlflow-experiment", default=None, help="Overrides the training-run config's mlflow_experiment")
-    parser.add_argument("--mlflow-tracking-uri", default=None, help="Advanced/test override; normally resolved automatically")
+    parser.add_argument(
+        "--shards-root",
+        default=None,
+        help="Local directory or Volume path holding train/validation/test shard dirs; "
+        "defaults to <storage_root>/gold/<dataset_version>/shards",
+    )
+    parser.add_argument(
+        "--mlflow-experiment", default=None, help="Overrides the training-run config's mlflow_experiment"
+    )
+    parser.add_argument(
+        "--mlflow-tracking-uri", default=None, help="Advanced/test override; normally resolved automatically"
+    )
     parser.add_argument(
         "--registered-model-name",
         default=None,
         help="Overrides the training-run config's registered_model_name (e.g. a Unity Catalog "
         "'catalog.schema.model' name); if neither is set, the model is logged to the run but not registered",
     )
-    parser.add_argument("--registry-uri", default=None, help="Advanced/test override for the model registry backend; normally resolved automatically (Unity Catalog)")
+    parser.add_argument(
+        "--registry-uri",
+        default=None,
+        help="Advanced/test override for the model registry backend; normally resolved automatically (Unity Catalog)",
+    )
     parser.add_argument("--device", default=None, help="Defaults to cuda if available, else cpu")
     parser.add_argument("--num-workers", type=int, default=0)
     return parser.parse_args(argv)
@@ -179,7 +194,9 @@ def check_shards_exist(base_shards_root: str, splits: tuple[str, ...] = ("train"
     streaming.MDSWriter always writes last -- its presence is what actually means "this split
     was fully exported," not just that the directory exists.
     """
-    missing_splits = [split for split in splits if not Path(join_storage_path(base_shards_root, split), "index.json").exists()]
+    missing_splits = [
+        split for split in splits if not Path(join_storage_path(base_shards_root, split), "index.json").exists()
+    ]
     if missing_splits:
         raise FileNotFoundError(
             f"No shards found for split(s) {missing_splits} under {base_shards_root!r}. Run "
@@ -315,7 +332,11 @@ def build_loaders(run: PreparedRun, num_workers: int) -> dict:
     label_to_index = label_to_index_map(run.spec.label_values)
     train_transform = build_transforms(run.spec.preprocessing_config, "train")
     eval_transform = build_transforms(run.spec.preprocessing_config, "eval")
-    split_settings = {"train": (train_transform, True), "validation": (eval_transform, False), "test": (eval_transform, False)}
+    split_settings = {
+        "train": (train_transform, True),
+        "validation": (eval_transform, False),
+        "test": (eval_transform, False),
+    }
     return {
         split: build_dataloader(
             join_storage_path(run.shards_root, split),

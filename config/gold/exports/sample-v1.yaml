@@ -6,9 +6,7 @@
 # fully rebuildable cache rather than a second source of truth.
 #
 # No retention_days field: shard retention is an open question, not yet decided -- see
-# docs/decisions/006-gold-shard-retention-undecided.md. data_platform.spark_io.remove_expired_exports
-# is available whenever/if a retention policy does get decided; it's just not wired to a
-# config value or run by default until then.
+# docs/decisions/006-gold-shard-retention-undecided.md.
 #
 # dataset_keys and preprocessing_version are deliberately not repeated here -- both
 # are read from gold.manifest_registry at run time instead of hand-copied into a

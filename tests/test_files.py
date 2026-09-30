@@ -1,17 +1,16 @@
+import hashlib
 import zipfile
 from pathlib import Path
 
-import hashlib
-
 from data_platform.files import (
     IMAGE_SUFFIXES,
+    ArchiveMatches,
     check_archives_exist,
     count_zip_members_by_suffix,
     extract_zip_members,
     format_bronze_uri,
     is_image_file,
     iter_archive_image_rows,
-    ArchiveMatches,
     parse_bronze_uri,
     stage_archive_locally,
     stage_archives_and_extract_metadata,

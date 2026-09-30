@@ -47,7 +47,7 @@ def decode_batch(batches, min_dimension: int = MIN_DIMENSION, max_dimension: int
     for batch in batches:
         results = []
         for image_id, source_split, bronze_uri, image_bytes in zip(
-            batch["image_id"], batch["source_split"], batch["bronze_uri"], batch["image_bytes"]
+            batch["image_id"], batch["source_split"], batch["bronze_uri"], batch["image_bytes"], strict=True
         ):
             outcome = decode_image(bytes(image_bytes), min_dimension=min_dimension, max_dimension=max_dimension)
             results.append(

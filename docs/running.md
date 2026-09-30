@@ -82,9 +82,12 @@ The catalog step and archive uploads above still apply. Jobs record the git comm
 Requires Python 3.11 and [`uv`](https://docs.astral.sh/uv/). The first `uv sync` downloads PyTorch, so it takes a few minutes.
 
 ```bash
-uv sync --extra dev   # --extra dev also installs pytest
+uv sync --extra dev   # --extra dev also installs pytest and ruff
 uv run pytest
+uv run ruff check src tests
 ```
+
+The Spark tests in `tests/test_spark_io.py` are skipped unless PySpark is installed (`--extra spark`) and Java is available, as in CI.
 
 The tests build their own tiny archives and shards and never download ISIC data. `tests/test_ml_train_smoke.py` runs the full training path end to end on CPU.
 

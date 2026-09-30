@@ -49,7 +49,8 @@ ACCEPTED_SCHEMA = (
 
 
 def _accepted_row(image_id, checksum, lesion_id=None, patient_id=None, label="benign"):
-    return ("isic_2019", image_id, f"archive:a.zip#{image_id}.jpg", checksum, 100, 100, "JPEG", label, patient_id, lesion_id)
+    bronze_uri = f"archive:a.zip#{image_id}.jpg"
+    return ("isic_2019", image_id, bronze_uri, checksum, 100, 100, "JPEG", label, patient_id, lesion_id)
 
 
 def _groups_by_image(image_inventory_df):
@@ -105,7 +106,8 @@ def test_build_accepted_rows_fills_a_missing_patient_id_column(spark):
     )
     image_valid_df = spark.createDataFrame(
         [("m1", "all", "archive:a.zip#m1.jpg", 10, 20, "JPEG")],
-        "image_id STRING, source_split STRING, bronze_uri STRING, image_width INT, image_height INT, image_format STRING",
+        "image_id STRING, source_split STRING, bronze_uri STRING, "
+        "image_width INT, image_height INT, image_format STRING",
     )
 
     row = build_accepted_rows(label_valid_df, image_valid_df, ["malignancy"], "milk10k").collect()[0]
@@ -194,7 +196,8 @@ def test_build_manifest_rows_keeps_only_the_datasets_labelled_images_in_selected
     # b's group wasn't selected, c has no label, d belongs to another dataset.
     assert [row["image_id"] for row in rows] == ["a"]
     row = rows[0]
-    assert (row["dataset_version"], row["split"], row["label"], row["git_commit"]) == ("v1", "train", "benign", "abc123")
+    assert (row["dataset_version"], row["split"], row["label"]) == ("v1", "train", "benign")
+    assert row["git_commit"] == "abc123"
     assert (row["sample_seed"], row["split_seed"], row["preprocessing_version"]) == (1, 2, "p1")
 
 

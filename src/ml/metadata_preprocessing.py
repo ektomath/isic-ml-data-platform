@@ -15,8 +15,8 @@ transform, applied at training/inference load time only, never baked into a stor
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 from data_platform.dataset_layout import load_yaml_config
 from ml.preprocessing import require_fields
@@ -144,7 +144,9 @@ def build_metadata_transform(metadata_preprocessing_config: dict) -> Callable[[d
     already agree -- see docs/decisions/009-pin-metadata-feature-config-per-training-run.md.
     Absent entirely for a single-dataset config, exactly as before that reconciliation existed.
     """
-    require_fields(metadata_preprocessing_config, METADATA_PREPROCESSING_REQUIRED_FIELDS, "metadata_preprocessing_config")
+    require_fields(
+        metadata_preprocessing_config, METADATA_PREPROCESSING_REQUIRED_FIELDS, "metadata_preprocessing_config"
+    )
     fields = metadata_preprocessing_config["fields"]
     _validate_field_specs(fields)
 
@@ -176,7 +178,9 @@ def metadata_feature_dim(metadata_preprocessing_config: dict) -> int:
     """The fixed output length build_metadata_transform's callable always returns for this
     config -- 1 per numeric field, len(categories) + 1 per categorical field. A multimodal
     model's metadata input layer is sized from this, not inferred from a batch at runtime."""
-    require_fields(metadata_preprocessing_config, METADATA_PREPROCESSING_REQUIRED_FIELDS, "metadata_preprocessing_config")
+    require_fields(
+        metadata_preprocessing_config, METADATA_PREPROCESSING_REQUIRED_FIELDS, "metadata_preprocessing_config"
+    )
     return sum(
         1 if field["kind"] == "numeric" else len(field["categories"]) + 1
         for field in metadata_preprocessing_config["fields"]
