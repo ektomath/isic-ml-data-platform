@@ -1,7 +1,13 @@
 """Shared data-platform package."""
 
 import logging
+import os
 import sys
+
+
+def running_on_databricks() -> bool:
+    """True inside a Databricks notebook or job."""
+    return "DATABRICKS_RUNTIME_VERSION" in os.environ
 
 
 def configure_logging(level: int = logging.INFO) -> None:

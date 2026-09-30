@@ -11,10 +11,7 @@ import yaml
 
 
 def load_yaml_config(path: str | Path) -> dict:
-    """Load a YAML config file. Generic -- used for every config file in this
-    project (dataset configs, Gold manifest/export configs, storage.yaml), not
-    just dataset configs; see load_dataset_config for the dataset-specific case.
-    """
+    """Load a YAML config file."""
     with Path(path).open("r", encoding="utf-8") as handle:
         return yaml.safe_load(handle)
 
@@ -33,13 +30,6 @@ def load_storage_config(config_root: str | Path) -> dict:
     if mismatched:
         raise ValueError(f"config/storage.yaml: {mismatched} don't use catalog {catalog!r}")
     return config
-
-
-def load_dataset_config(path: str | Path) -> dict:
-    """Load one dataset's config (config/bronze/datasets/<dataset>.yaml). The same as
-    load_yaml_config, named so call sites say what they load.
-    """
-    return load_yaml_config(path)
 
 
 def join_storage_path(storage_root: str, relative_path: str) -> str:
@@ -76,8 +66,7 @@ def build_layout(dataset_config: dict) -> dict:
     """Build the paths and table names one dataset's Bronze and Silver notebooks use, from its
     config merged with config/storage.yaml's roots. Returns:
 
-    - `landing_paths`: {root, archives, dataset_archive}, where the archives land; None if the
-      config has no landing_root.
+    - `landing_paths`: {root, archives, dataset_archive}, where the archives land.
     - `bronze_paths`: {root, metadata}, the dataset's Bronze folder and its metadata folder.
     - `bronze_tables`: {source_metadata, image_index, ingestion_runs}; the last is shared by all
       datasets.
@@ -85,13 +74,11 @@ def build_layout(dataset_config: dict) -> dict:
       Silver has no folders.
     """
     dataset_key = dataset_config["dataset_key"]
-    landing_root = dataset_config.get("landing_root")
+    landing_root = dataset_config["landing_root"]
     storage_root = dataset_config["storage_root"]
 
     return {
-        "landing_paths": None
-        if landing_root is None
-        else {
+        "landing_paths": {
             "root": landing_root.rstrip("/"),
             "archives": join_storage_path(landing_root, "archives"),
             "dataset_archive": join_storage_path(landing_root, f"archives/{dataset_key}"),
@@ -119,7 +106,7 @@ def load_dataset(config_root: str | Path, dataset_key: str) -> dict:
     merged in) and `archives` (resolve_archive_paths' output).
     """
     config_root = Path(config_root)
-    config = load_dataset_config(config_root / "bronze" / "datasets" / f"{dataset_key}.yaml")
+    config = load_yaml_config(config_root / "bronze" / "datasets" / f"{dataset_key}.yaml")
     storage_config = load_storage_config(config_root)
     config["landing_root"] = storage_config["landing_root"]
     config["storage_root"] = storage_config["storage_root"]

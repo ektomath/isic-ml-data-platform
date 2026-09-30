@@ -7,9 +7,8 @@ _VALID_CONFIG = {
     "preprocessing_version": "fixture-v1",
     "image_size": 224,
     "normalization": {"mean": [0.485, 0.456, 0.406], "std": [0.229, 0.224, 0.225]},
-    "resize_policy": "shorter_side_to_256",
-    "crop_policy": {"train": "random_crop_224", "eval": "center_crop_224"},
-    "augmentation": {"train": {"random_horizontal_flip": True, "random_rotation_degrees": 15}, "eval": []},
+    "resize_shorter_side": 256,
+    "augmentation": {"train": {"random_horizontal_flip": True, "random_rotation_degrees": 15}},
     "random_seed": 7,
 }
 
@@ -65,17 +64,6 @@ def test_build_transforms_raises_on_missing_fields():
         raise AssertionError("Expected missing required fields to raise")
 
 
-def test_build_transforms_raises_on_unknown_resize_policy():
-    config = {**_VALID_CONFIG, "resize_policy": "not_a_real_policy"}
-
-    try:
-        build_transforms(config, "eval")
-    except ValueError as error:
-        assert "not_a_real_policy" in str(error)
-    else:
-        raise AssertionError("Expected unknown resize_policy to raise")
-
-
 def test_load_preprocessing_config_round_trips_a_real_file(tmp_path):
     preprocessing_dir = tmp_path / "preprocessing"
     preprocessing_dir.mkdir()
@@ -83,9 +71,8 @@ def test_load_preprocessing_config_round_trips_a_real_file(tmp_path):
         "preprocessing_version: fixture-v1\n"
         "image_size: 224\n"
         "normalization:\n  mean: [0.485, 0.456, 0.406]\n  std: [0.229, 0.224, 0.225]\n"
-        "resize_policy: shorter_side_to_256\n"
-        "crop_policy:\n  train: random_crop_224\n  eval: center_crop_224\n"
-        "augmentation:\n  train: {}\n  eval: []\n"
+        "resize_shorter_side: 256\n"
+        "augmentation:\n  train: {}\n"
         "random_seed: 7\n"
     )
 

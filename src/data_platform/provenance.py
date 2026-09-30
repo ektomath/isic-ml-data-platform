@@ -17,9 +17,10 @@ shouldn't be written at all.
 
 from __future__ import annotations
 
-import os
 import subprocess
 from pathlib import Path
+
+from data_platform import running_on_databricks
 
 # The repo root, derived from this file's location (src/data_platform/provenance.py), so the
 # commit always describes the code that's actually running.
@@ -56,10 +57,6 @@ def resolve_git_commit(repo_root: str | Path = REPO_ROOT, explicit_commit: str |
         f"Could not determine the git commit for {repo_root}. Run from a git checkout or a "
         f"Databricks Git folder. Tried: {'; '.join(attempts)}"
     )
-
-
-def running_on_databricks() -> bool:
-    return "DATABRICKS_RUNTIME_VERSION" in os.environ
 
 
 def commit_from_git_cli(repo_root: Path) -> tuple[str | None, str | None]:

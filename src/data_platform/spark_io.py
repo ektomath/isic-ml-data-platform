@@ -914,8 +914,8 @@ def print_gold_outputs(
 
 def load_manifest_rows_for_export(spark, gold_tables: dict, dataset_version: str) -> dict[str, list[dict]]:
     """Collect one release's gold.manifest_rows to the driver, grouped by split: {split: [row,
-    ...]}. Metadata only; source_checksum is included so the shard export can verify each image (ADR
-    005).
+    ...]}. Raises if the release has no rows. Metadata only; source_checksum is included so the shard
+    export can verify each image (ADR 005).
     """
     manifest_df = (
         spark.table(gold_tables["manifest_rows"])
@@ -926,7 +926,11 @@ def load_manifest_rows_for_export(spark, gold_tables: dict, dataset_version: str
     rows_by_split: dict[str, list[dict]] = defaultdict(list)
     for row in manifest_df.collect():
         rows_by_split[row["split"]].append(row.asDict())
-
+    if not rows_by_split:
+        raise ValueError(
+            f"No gold.manifest_rows for dataset_version={dataset_version!r}; run the Gold manifest "
+            "notebook (30_create_gold_manifest) for this release first."
+        )
     return dict(rows_by_split)
 
 

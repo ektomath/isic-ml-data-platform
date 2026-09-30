@@ -6,10 +6,7 @@ image_size: 224
 normalization:
   mean: [0.485, 0.456, 0.406]
   std: [0.229, 0.224, 0.225]
-resize_policy: shorter_side_to_256
-crop_policy:
-  train: random_crop_224
-  eval: center_crop_224
+resize_shorter_side: 256
 augmentation:
   train:
     random_horizontal_flip: true

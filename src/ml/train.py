@@ -66,18 +66,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--mlflow-experiment", default=None, help="Overrides the training-run config's mlflow_experiment"
     )
     parser.add_argument(
-        "--mlflow-tracking-uri", default=None, help="Advanced/test override; normally resolved automatically"
-    )
-    parser.add_argument(
         "--registered-model-name",
         default=None,
         help="Overrides the training-run config's registered_model_name (e.g. a Unity Catalog "
         "'catalog.schema.model' name); if neither is set, the model is logged to the run but not registered",
-    )
-    parser.add_argument(
-        "--registry-uri",
-        default=None,
-        help="Advanced/test override for the model registry backend; normally resolved automatically (Unity Catalog)",
     )
     parser.add_argument("--device", default=None, help="Defaults to cuda if available, else cpu")
     parser.add_argument("--num-workers", type=int, default=0)
@@ -193,68 +185,39 @@ def build_optimizer(model: nn.Module, optimizer_name: str, learning_rate: float)
     raise ValueError(f"Unsupported optimizer {optimizer_name!r}; use 'adam' or 'sgd'.")
 
 
-class _LossAccumulator:
-    """On-device running mean, shared by train_one_epoch/evaluate -- accumulating on-device and
-    syncing to a Python float once (.mean()) rather than once per batch is what avoids a
-    host<->device sync every iteration."""
-
-    def __init__(self, device):
-        self.total = torch.zeros((), device=device)
-        self.count = 0
-
-    def update(self, loss) -> None:
-        self.total += loss.detach()
-        self.count += 1
-
-    def mean(self) -> float:
-        return (self.total / max(self.count, 1)).item()
-
-
-def _forward_batch(model, images, labels, device, loss_fn=None):
-    """Move one batch to device and run the forward pass -- the one step train_one_epoch and
-    evaluate share. Returns (outputs, labels_on_device, loss_or_None). `non_blocking=True`
-    lets the host->device copy overlap with compute when the DataLoader's tensors are pinned
-    (see build_dataloader's `pin_memory=True`) and the target device is CUDA; a harmless no-op
-    otherwise (unpinned tensors or a CPU device)."""
-    images, labels = images.to(device, non_blocking=True), labels.to(device, non_blocking=True)
-    outputs = model(images)
-    loss = loss_fn(outputs, labels) if loss_fn is not None else None
-    return outputs, labels, loss
-
-
 def train_one_epoch(model, dataloader, optimizer, loss_fn, device) -> dict:
     model.train()
-    loss_accumulator = _LossAccumulator(device)
+    total_loss, batch_count = 0.0, 0
     for images, labels in dataloader:
-        _outputs, _labels, loss = _forward_batch(model, images, labels, device, loss_fn)
+        images, labels = images.to(device), labels.to(device)
+        loss = loss_fn(model(images), labels)
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-        loss_accumulator.update(loss)
-    return {"train_loss": loss_accumulator.mean()}
+        total_loss += loss.item()
+        batch_count += 1
+    return {"train_loss": total_loss / max(batch_count, 1)}
 
 
 def evaluate(model, dataloader, device, label_values: list[str], loss_fn=None) -> dict:
-    """Runs inference over dataloader and returns ml.metrics.compute_classification_metrics'
-    output, plus {"loss": ...} if loss_fn is given."""
+    """Run inference over dataloader and return ml.metrics.compute_classification_metrics' output,
+    plus {"loss": ...} if loss_fn is given."""
     model.eval()
-    all_preds, all_labels = [], []
-    loss_accumulator = _LossAccumulator(device)
+    predictions, targets = [], []
+    total_loss, batch_count = 0.0, 0
     with torch.no_grad():
         for images, labels in dataloader:
-            outputs, labels, loss = _forward_batch(model, images, labels, device, loss_fn)
-            if loss is not None:
-                loss_accumulator.update(loss)
-            all_preds.append(outputs.argmax(dim=1))
-            all_labels.append(labels)
+            images, labels = images.to(device), labels.to(device)
+            outputs = model(images)
+            if loss_fn is not None:
+                total_loss += loss_fn(outputs, labels).item()
+                batch_count += 1
+            predictions.extend(outputs.argmax(dim=1).cpu().tolist())
+            targets.extend(labels.cpu().tolist())
 
-    # One host sync for predictions/labels, and one for the loss, instead of one per batch.
-    preds = torch.cat(all_preds).cpu().tolist()
-    labels = torch.cat(all_labels).cpu().tolist()
-
-    metrics = compute_classification_metrics(labels, preds, label_values)
+    metrics = compute_classification_metrics(targets, predictions, label_values)
     if loss_fn is not None:
-        metrics["loss"] = loss_accumulator.mean()
+        metrics["loss"] = total_loss / max(batch_count, 1)
     return metrics
 
 
@@ -290,6 +253,12 @@ def prepare_run(
             "installed torch build probably has no CUDA support (check torch.version.cuda)."
         )
 
+    logger.info(
+        f"Training run {spec.training_run_name}: dataset_version={spec.dataset_version}, "
+        f"preprocessing_version={spec.preprocessing_version}, {spec.architecture} "
+        f"(pretrained={spec.pretrained}), {spec.num_epochs} epochs, shards at {base_shards_root}, "
+        f"device={resolved_device}"
+    )
     return PreparedRun(
         spec=spec,
         git_commit=resolved_commit,
@@ -459,9 +428,7 @@ def main(argv: list[str] | None = None) -> None:
         config_root=args.config_root,
         shards_root=args.shards_root,
         mlflow_experiment=args.mlflow_experiment,
-        mlflow_tracking_uri=args.mlflow_tracking_uri,
         registered_model_name=args.registered_model_name,
-        registry_uri=args.registry_uri,
         device=args.device,
         num_workers=args.num_workers,
     )

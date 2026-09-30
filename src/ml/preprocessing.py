@@ -15,16 +15,10 @@ PREPROCESSING_REQUIRED_FIELDS = (
     "preprocessing_version",
     "image_size",
     "normalization",
-    "resize_policy",
-    "crop_policy",
+    "resize_shorter_side",
     "augmentation",
     "random_seed",
 )
-
-_RESIZE_POLICIES = {
-    "shorter_side_to_256": 256,
-}
-
 
 def require_fields(config: dict, required_fields: tuple[str, ...], context: str) -> None:
     """Raise ValueError, listing every missing field at once, if config lacks any of
@@ -46,22 +40,18 @@ def load_preprocessing_config(config_root: str | Path, preprocessing_version: st
 
 
 def build_transforms(preprocessing_config: dict, split: str) -> transforms.Compose:
-    """Build the transform for one split. "train" uses the config's train augmentation; every other
-    split uses its eval augmentation. The crop size comes from `image_size`, which must agree with
-    the size in crop_policy (e.g. random_crop_224).
+    """Build the transform for one split: resize the shorter side to `resize_shorter_side`, crop to
+    `image_size` (a random crop plus the config's train augmentation for "train", a center crop for
+    every other split), then convert to a normalized tensor.
     """
     require_fields(preprocessing_config, PREPROCESSING_REQUIRED_FIELDS, "preprocessing_config")
 
     image_size = preprocessing_config["image_size"]
-    resize_policy = preprocessing_config["resize_policy"]
-    if resize_policy not in _RESIZE_POLICIES:
-        raise ValueError(f"Unknown resize_policy {resize_policy!r}; known policies: {sorted(_RESIZE_POLICIES)}")
-    resize_target = _RESIZE_POLICIES[resize_policy]
 
     normalization = preprocessing_config["normalization"]
     mean, std = normalization["mean"], normalization["std"]
 
-    steps: list = [transforms.Resize(resize_target)]
+    steps: list = [transforms.Resize(preprocessing_config["resize_shorter_side"])]
 
     if split == "train":
         steps.append(transforms.RandomCrop(image_size))

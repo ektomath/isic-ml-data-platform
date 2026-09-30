@@ -12,22 +12,11 @@ normalization:
   mean: [0.485, 0.456, 0.406]   # ImageNet channel means -- matches the pretrained ResNet-18 weights
   std: [0.229, 0.224, 0.225]
 
-resize_policy: shorter_side_to_256   # resize the shorter side to 256px, preserving aspect ratio
-
-crop_policy:
-  train: random_crop_224
-  eval: center_crop_224
+resize_shorter_side: 256   # then cropped to image_size: random for train, center otherwise
 
 augmentation:
   train:
     random_horizontal_flip: true
     random_rotation_degrees: 15
-  eval: []   # validation/test get resize + crop + normalize only, no augmentation
 
 random_seed: 42
-
-framework_runtime_notes: >
-  Built for torchvision.transforms operating on PIL images decoded from raw MDS shard bytes at
-  load time -- never baked into shard bytes. Compose order: Resize(shorter side) -> (RandomCrop
-  + flip + rotation for train / CenterCrop for eval) -> ToTensor -> Normalize(mean, std).
-  Resolved by src.ml.preprocessing.build_transforms, one Compose per split.

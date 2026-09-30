@@ -5,18 +5,11 @@ data and preprocessing it used is fixed by config/gold/training_runs/<name>.yaml
 
 from __future__ import annotations
 
-import os
-
 import mlflow
 
+from data_platform import running_on_databricks
+
 DEFAULT_MLFLOW_EXPERIMENT = "/Shared/isic_ml_data_platform/baseline_training"
-
-
-def running_on_databricks() -> bool:
-    """True inside a Databricks notebook/job, where an MLflow tracking URI/session is already
-    configured by the runtime -- False on a local machine, where this project's code must
-    configure one itself."""
-    return "DATABRICKS_RUNTIME_VERSION" in os.environ
 
 
 def configure_mlflow_tracking(experiment_name: str | None, tracking_uri: str | None = None) -> str:

@@ -181,18 +181,16 @@ Pins one `dataset_version` to one `preprocessing_version`, plus the hyperparamet
 
 ### `config/preprocessing/<name>.yaml`
 
-A reusable image preprocessing recipe, applied only at training and inference time, never to stored bytes ([ADR 001](decisions/001-preprocessing-at-runtime.md)). Loaded by `ml.preprocessing.load_preprocessing_config` and turned into torchvision transforms by `build_transforms`. Every training run also saves the full recipe to MLflow as `preprocessing_config.json`. All fields are required except `framework_runtime_notes`.
+A reusable image preprocessing recipe, applied only at training and inference time, never to stored bytes ([ADR 001](decisions/001-preprocessing-at-runtime.md)). Loaded by `ml.preprocessing.load_preprocessing_config` and turned into torchvision transforms by `build_transforms`. Every training run also saves the full recipe to MLflow as `preprocessing_config.json`. All fields are required.
 
 | Field | Type | Notes |
 |---|---|---|
 | `preprocessing_version` | string | Name the file is referenced by |
 | `image_size` | int | Final crop size in pixels |
 | `normalization` | `{mean: [3 floats], std: [3 floats]}` | Per-channel, matching the pretrained weights |
-| `resize_policy` | string | Currently only `shorter_side_to_256` |
-| `crop_policy` | `{train: string, eval: string}` | Descriptive; `image_size` is what's actually used |
-| `augmentation` | `{train: {...}, eval: [...]}` | `train` supports `random_horizontal_flip` and `random_rotation_degrees`. `eval` is ignored: validation and test images always get resize, center crop and normalize only |
+| `resize_shorter_side` | int | The shorter side is resized to this many pixels, keeping the aspect ratio, before cropping to `image_size` (a random crop for training, a center crop otherwise) |
+| `augmentation` | `{train: {...}}` | Training only; supports `random_horizontal_flip` and `random_rotation_degrees`. Validation and test images get resize, center crop and normalize only |
 | `random_seed` | int | Seeds PyTorch and the shard reader's shuffle order |
-| `framework_runtime_notes` | string, optional | Free text describing the transform order |
 
 ## Rules
 
