@@ -82,11 +82,11 @@ def _image_ids_df(spark, image_ids: list[str]):
     return spark.createDataFrame([{"image_id": image_id} for image_id in image_ids], "image_id STRING")
 
 
-def scratch_table_name(silver_tables: dict, name: str) -> str:
-    """Build a scratch table name in the same catalog.schema as the Silver tables.
-    Overwritten on every run, so nothing here is meant to persist between runs."""
+def scratch_table_name(silver_tables: dict, dataset_key: str, name: str) -> str:
+    """A scratch table in the Silver schema, overwritten on every run. Named per dataset, so two
+    datasets' Silver runs can run at the same time."""
     schema = silver_tables["image_inventory"].rsplit(".", 1)[0]
-    return f"{schema}._scratch_{name}"
+    return f"{schema}._scratch_{dataset_key}_{name}"
 
 
 REJECTED_RECORDS_SCHEMA = (
@@ -180,8 +180,9 @@ IMAGE_INDEX_SCHEMA = StructType(
 
 def write_image_index_table(spark, archives: list[dict], target_table: str):
     """Stream the staged archives to compute each image's checksum and size, then write the index
-    rows (no bytes) to `target_table` in one overwrite, after deduplicating on (image_id,
-    source_split). Returns image_manifest_df (image_id, source_split, source_uri, source_checksum).
+    rows (no bytes) to `target_table` in one overwrite. A second image with the same (image_id,
+    source_split) is skipped, with a warning. Returns image_manifest_df (image_id, source_split,
+    source_uri, source_checksum).
 
     Each archive dict needs `staged_archive_path`, `source_split`, `archive_dbfs_path` and
     `archive_filename`, as set by files.stage_archives_and_extract_metadata.
@@ -191,6 +192,7 @@ def write_image_index_table(spark, archives: list[dict], target_table: str):
 
     for archive in archives:
         archive_row_count = 0
+        duplicate_count = 0
         for row in iter_archive_image_rows(
             archive_path=archive["staged_archive_path"],
             source_split=archive["source_split"],
@@ -198,6 +200,7 @@ def write_image_index_table(spark, archives: list[dict], target_table: str):
         ):
             key = (row["image_id"], row["source_split"])
             if key in seen_keys:
+                duplicate_count += 1
                 continue
             seen_keys.add(key)
             row.pop("image_bytes")
@@ -214,6 +217,11 @@ def write_image_index_table(spark, archives: list[dict], target_table: str):
                 f"{archive['archive_filename']}; archive contains file types: {suffix_counts}"
             )
         logger.info(f"Indexed {archive_row_count} images for {archive['source_split']}")
+        if duplicate_count:
+            logger.warning(
+                f"Skipped {duplicate_count} image(s) in {archive['archive_filename']} whose image_id "
+                f"(the file name without its extension) was already indexed for {archive['source_split']}"
+            )
 
     (
         spark.createDataFrame(index_rows, schema=IMAGE_INDEX_SCHEMA)
@@ -248,6 +256,26 @@ def load_combined_metadata(spark, archives: list[dict]):
     for metadata_frame in metadata_frames[1:]:
         raw_metadata_df = raw_metadata_df.unionByName(metadata_frame, allowMissingColumns=True)
     return raw_metadata_df
+
+
+def write_source_metadata(spark, source_metadata_df, target_table: str) -> int:
+    """Replace target_table with this ingestion's source metadata and return the row count, like
+    write_image_index_table does for the index. Raises first if (image_id, source_split) isn't
+    unique, since every later join relies on that key.
+    """
+    duplicate_keys = (
+        source_metadata_df.groupBy("image_id", "source_split").count().where(F.col("count") > 1).limit(5).collect()
+    )
+    if duplicate_keys:
+        examples = [(row["image_id"], row["source_split"], row["count"]) for row in duplicate_keys]
+        raise ValueError(
+            f"Source metadata has more than one row per (image_id, source_split), first few "
+            f"(image_id, source_split, rows): {examples}"
+        )
+    source_metadata_df.write.mode("overwrite").saveAsTable(target_table)
+    row_count = spark.table(target_table).count()
+    logger.info(f"Source metadata rows written: {row_count}")
+    return row_count
 
 
 def write_ingestion_run(
@@ -611,11 +639,14 @@ def write_silver_dataset(
     Each table is replaced atomically for `dataset_key = <this dataset>` (Delta replaceWhere),
     so rows from an earlier run can't linger: an image accepted last time and rejected now
     leaves the inventory, and vice versa. Other datasets' rows are untouched.
+
+    The three writes aren't one transaction. The inventory, which Gold reads, is written last, so
+    a failure part-way leaves it as it was; a rerun then brings all three in line.
     """
     predicate = f"dataset_key = {sql_string(rejections.dataset_key)}"
+    overwrite_where(spark, rejections.to_dataframe(spark), silver_tables["rejected_records"], predicate)
     overwrite_where(spark, leakage_groups_df, silver_tables["leakage_groups"], predicate)
     overwrite_where(spark, image_inventory_df, silver_tables["image_inventory"], predicate)
-    overwrite_where(spark, rejections.to_dataframe(spark), silver_tables["rejected_records"], predicate)
 
     for name in ("image_inventory", "leakage_groups", "rejected_records"):
         row_count = _dataset_rows(spark, silver_tables[name], rejections.dataset_key).count()
@@ -806,7 +837,7 @@ def write_gold_release(
     ({group_id: split}).
     """
     if not split_by_group_by_dataset:
-        raise ValueError("No datasets to write -- every dataset in the manifest config was skipped.")
+        raise ValueError("No datasets to write.")
 
     manifest_table = gold_tables["manifest_rows"]
     already_published = (

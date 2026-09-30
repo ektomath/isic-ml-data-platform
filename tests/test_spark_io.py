@@ -27,6 +27,7 @@ from data_platform.spark_io import (  # noqa: E402
     build_manifest_rows,
     sql_string,
     validate_images,
+    write_source_metadata,
 )
 
 
@@ -262,3 +263,12 @@ def test_validate_images_fails_when_an_archive_changed_after_ingestion(spark, tm
             [{"archive_dbfs_path": archive_uri, "staged_archive_path": archive_path}],
             Rejections("isic_2019"),
         )
+
+
+def test_write_source_metadata_rejects_a_duplicate_key_before_writing(spark):
+    source_metadata_df = spark.createDataFrame(
+        [("a", "train"), ("a", "train"), ("b", "train")], "image_id STRING, source_split STRING"
+    )
+
+    with pytest.raises(ValueError, match=r"\('a', 'train', 2\)"):
+        write_source_metadata(spark, source_metadata_df, "never_written")
