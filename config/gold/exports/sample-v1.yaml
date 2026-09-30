@@ -1,24 +1,7 @@
-# Packages the sample-v1 training dataset (defined by the manifest of the same name in
-# config/gold/manifests/) into MosaicML shards -- see the top-level README.md for how manifests
-# and exports relate. Shards are packed by notebooks/31_export_gold_shards.ipynb from
-# the dataset_version's already-published gold.manifest_rows. See
-# docs/decisions/004-stream-archives-no-blob-storage.md for why shards are a derived,
-# fully rebuildable cache rather than a second source of truth.
-#
-# No retention_days field: shard retention is an open question, not yet decided -- see
-# docs/decisions/006-gold-shard-retention-undecided.md.
-#
-# dataset_keys and preprocessing_version are deliberately not repeated here -- both
-# are read from gold.manifest_registry at run time instead of hand-copied into a
-# second config file (same "derivable, don't duplicate" reasoning as why
-# gold.manifest_registry is a view rather than a maintained table).
+# How the sample-v1 release is exported as shards, by notebooks/31_export_gold_shards.ipynb.
 dataset_version: sample-v1
-shard_size_limit_bytes: 67108864  # 64 MiB, MDSWriter's own shard-splitting threshold -- tune once run against real image sizes
+shard_size_limit_bytes: 67108864  # 64 MiB per shard file
 
-# Optional, defaults to false. If true, also exports each dataset_key's raw Bronze source
-# metadata (age_approx, sex, anatom_site_*, diagnosis_*, image_type, etc. -- see
-# docs/data_contract.md's Bronze contracts) for exactly this release's images, as one CSV file
-# per dataset_key under <storage_root>/gold/<dataset_version>/metadata/ -- otherwise unreachable
-# past Bronze. For local subgroup analysis, or as auxiliary input to a multimodal (image +
-# tabular/text) model; the baseline ResNet-18 classifier doesn't read it today.
+# Also write each dataset's source metadata for the release's images as a CSV beside the
+# shards (ADR 009). Optional, defaults to false.
 export_metadata_csv: true

@@ -1,6 +1,4 @@
-# Source dataset ingestion config -- see the top-level README.md's config/ overview. Consumed by isic_2019's
-# Bronze/Silver notebooks and by 31_export_gold_shards.ipynb (any Gold release that
-# includes this dataset_key resolves its archives back through here).
+# ISIC 2019: which archives to ingest and which columns feed the Silver labels.
 dataset_key: isic_2019
 dataset_name: isic/2019
 source_version: "2019"
@@ -11,7 +9,6 @@ archives:
   - source_split: test
     archive_filename: ISIC-2019-test-images.zip
     metadata_filename: metadata.csv
-# Raw Bronze diagnosis columns fed to normalize_diagnosis_labels (arity-agnostic,
-# shared with every other dataset) and the shared Silver label columns it produces.
+# Diagnosis columns read by normalize_diagnosis_labels, and the Silver label columns it fills.
 diagnosis_input_columns: [diagnosis_1, diagnosis_2, diagnosis_3]
 label_columns: [malignancy, specific_diagnosis]

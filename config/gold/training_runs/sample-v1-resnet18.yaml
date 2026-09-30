@@ -1,16 +1,12 @@
-# Pins exactly one dataset_version to exactly one preprocessing_version for a training run.
-# src/ml/train.py's entrypoint accepts only this one name -- never free-standing
-# dataset_version/preprocessing_version parameters -- so there is no code path to train against
-# an unpinned pairing. See docs/decisions/007-pin-data-and-preprocessing-per-training-run.md and
-# docs/decisions/008-baseline-model-resnet18.md.
+# One training run: the release and preprocessing recipe it uses, and its hyperparameters
+# (ADR 007). Training takes only this file's name.
 
 training_run_name: sample-v1-resnet18
 
 dataset_version: sample-v1
 preprocessing_version: sample-v1   # resolves to config/preprocessing/sample-v1.yaml
 
-# Fixes the class-index mapping deterministically -- order matters, this is what index 0/1/2
-# means for this run's model, not derived from a shard scan at load time.
+# Class index = position in this list.
 label_values: [benign, malignant, indeterminate]
 
 architecture: resnet18
@@ -21,12 +17,8 @@ num_epochs: 5
 learning_rate: 0.0003
 optimizer: adam   # adam | sgd
 
-# Optional -- defaults to ml.mlflow_utils.DEFAULT_MLFLOW_EXPERIMENT if omitted.
+# Optional; defaults to ml.mlflow_utils.DEFAULT_MLFLOW_EXPERIMENT.
 mlflow_experiment: /Shared/isic_ml_data_platform/baseline_training
 
-# Optional -- a Unity Catalog three-level name ("catalog.schema.model"). If set, the trained
-# model is registered as a new version of this name in the MLflow Model Registry (in addition to
-# always being logged to the run itself), so different architectures/hyperparameters trained
-# over time accumulate as versions of one named model instead of only being addressable by
-# run_id. Omit to log the model without registering it.
+# Optional; also registers the model as a new version of this Unity Catalog model.
 registered_model_name: isic_ml_data_platform.gold.baseline_classifier

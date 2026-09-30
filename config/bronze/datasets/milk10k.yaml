@@ -1,11 +1,6 @@
-# Source dataset ingestion config -- see the top-level README.md's config/ overview.
-#
-# MILK10k — second dataset, onboarded from the ISIC Archive.
-# Single release, no train/test split (unlike isic_2019).
-#
-# source_version is a provisional label (no separate release/version tag known
-# yet) — update once a real one is confirmed; cheap to fix, nothing has been
-# ingested against this config yet.
+# MILK10k: which archive to ingest and which columns feed the Silver labels.
+# One archive with no train/test split. The dataset has no version tag, so source_version
+# is just its name.
 dataset_key: milk10k
 dataset_name: isic/milk10k
 source_version: "milk10k"
@@ -13,7 +8,6 @@ archives:
   - source_split: all
     archive_filename: milk10k.zip
     metadata_filename: metadata.csv
-# Raw Bronze diagnosis columns fed to normalize_diagnosis_labels (arity-agnostic,
-# shared with every other dataset) and the shared Silver label columns it produces.
+# Diagnosis columns read by normalize_diagnosis_labels, and the Silver label columns it fills.
 diagnosis_input_columns: [diagnosis_1, diagnosis_2, diagnosis_3, diagnosis_4]
 label_columns: [malignancy, specific_diagnosis]

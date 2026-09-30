@@ -1,15 +1,12 @@
-# Preprocessing recipe for the sample-v1 baseline ResNet-18 classifier. Decoupled from any one
-# dataset_version -- config/gold/training_runs/<name>.yaml is what pins a specific pairing (see
-# docs/decisions/007-pin-data-and-preprocessing-per-training-run.md). Fields match the
-# config/preprocessing/<name>.yaml contract in docs/data_contract.md. Never applied to stored bytes --
-# resolved into transforms at training time only (docs/decisions/001-preprocessing-at-runtime.md).
+# Image preprocessing for the baseline ResNet-18, applied when training loads images, never
+# to stored bytes (ADR 001). Training-run configs pick a recipe by name.
 
 preprocessing_version: sample-v1
 
 image_size: 224
 
 normalization:
-  mean: [0.485, 0.456, 0.406]   # ImageNet channel means -- matches the pretrained ResNet-18 weights
+  mean: [0.485, 0.456, 0.406]   # ImageNet values, matching the pretrained weights
   std: [0.229, 0.224, 0.225]
 
 resize_shorter_side: 256   # then cropped to image_size: random for train, center otherwise

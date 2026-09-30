@@ -1,13 +1,7 @@
-# Defines a training dataset built from the source datasets in config/bronze/datasets/ --
-# see the top-level README.md. This one is a small sample release for iterating on the Gold
-# pipeline cheaply -- not the full-scale release, which is future work.
-#
-# sample_seed and split_seed are deliberately separate: sample_seed controls
-# which images end up in this manifest at all; split_seed controls how the
-# selected images are divided into train/validation/test. Keep sample_seed
-# fixed across manifests meant to be directly comparable (e.g. the same image
-# selection under a different preprocessing_version) even if split_seed or
-# other fields change.
+# A training release: which datasets, how many images, and how they're split.
+# sample-v1 is a small sample (100 images per dataset) for trying the pipeline cheaply.
+# sample_seed picks the images, split_seed divides them into splits; keep sample_seed fixed
+# to compare releases over the same images.
 dataset_version: sample-v1
 dataset_keys: [isic_2019, milk10k]
 label_column: malignancy
