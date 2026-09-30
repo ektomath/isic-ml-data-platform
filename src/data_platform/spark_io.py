@@ -13,7 +13,6 @@ import functools
 import logging
 from collections import defaultdict
 
-import pandas as pd
 from pyspark.sql import Window
 from pyspark.sql import functions as F
 from pyspark.sql.types import (
@@ -35,7 +34,7 @@ from data_platform.files import (
     parse_bronze_uri,
     raise_on_checksum_mismatches,
 )
-from data_platform.validate import MAX_DIMENSION, MIN_DIMENSION, decode_batch
+from data_platform.validate import MAX_DIMENSION, MIN_DIMENSION, decode_image
 
 logger = logging.getLogger(__name__)
 
@@ -439,19 +438,17 @@ def validate_images(
     spark,
     label_valid_df,
     archives: list[dict],
-    silver_tables: dict,
     rejections: Rejections,
     bronze_uri_col: str = "source_uri",
     min_dimension: int = MIN_DIMENSION,
     max_dimension: int = MAX_DIMENSION,
-    decode_flush_rows: int = 2000,
 ):
     """Decode and validate the images for `label_valid_df`'s rows and return the valid ones. Images
     missing from their archive or failing decode or dimension checks are rejected.
 
     The archives must already be staged locally; each is streamed once on the driver, as in Bronze
-    ingestion. Bytes are decoded and dropped, never stored (ADR 004). Decode results go to a scratch
-    table in the Silver schema, overwritten on each run.
+    ingestion. Each image is decoded as it's read and its bytes dropped straight away, so only the
+    small result rows are kept, never the bytes (ADR 004).
 
     A checksum that no longer matches Bronze's fails the run instead of rejecting the row: the
     source archive changed after ingestion (ADR 005).
@@ -472,72 +469,46 @@ def validate_images(
         }
 
     staged_path_by_archive_uri = {archive["archive_dbfs_path"]: archive["staged_archive_path"] for archive in archives}
-
-    scratch_table = scratch_table_name(silver_tables, "decoded_images")
-    total_decoded = 0
-
-    def flush(pending_rows: list[dict]) -> None:
-        nonlocal total_decoded
-        is_first = total_decoded == 0
-        decode_fn = functools.partial(decode_batch, min_dimension=min_dimension, max_dimension=max_dimension)
-        for output_df in decode_fn(iter([pd.DataFrame(pending_rows)])):
-            writer = spark.createDataFrame(output_df, schema=DECODE_OUTPUT_SCHEMA).write.mode(
-                "overwrite" if is_first else "append"
-            )
-            if is_first:
-                writer = writer.option("overwriteSchema", "true")
-            writer.saveAsTable(scratch_table)
-        total_decoded += len(pending_rows)
-
     matches = ArchiveMatches(candidates_by_archive_uri, staged_path_by_archive_uri)
-    pending_rows: list[dict] = []
 
-    # A mismatch below means the source archive changed after Bronze ingestion, not a bad row,
-    # so it fails the run (ADR 005).
+    decoded_rows = []
     for candidate_row, archive_row in matches:
-        pending_rows.append(
+        outcome = decode_image(archive_row["image_bytes"], min_dimension=min_dimension, max_dimension=max_dimension)
+        decoded_rows.append(
             {
                 "image_id": candidate_row["image_id"],
                 "source_split": candidate_row["source_split"],
                 "bronze_uri": format_bronze_uri(archive_row["source_archive_uri"], archive_row["archive_member_path"]),
-                "image_bytes": archive_row["image_bytes"],
+                "valid": outcome["valid"],
+                "image_width": outcome.get("width"),
+                "image_height": outcome.get("height"),
+                "image_format": outcome.get("format"),
+                "validation_reason": outcome.get("reason"),
             }
         )
-        if len(pending_rows) >= decode_flush_rows:
-            flush(pending_rows)
-            pending_rows = []
-
-    if pending_rows:
-        flush(pending_rows)
 
     raise_on_checksum_mismatches(matches.checksum_mismatches, "the checksum Bronze recorded at ingestion")
 
-    decoded_df = spark.table(scratch_table) if total_decoded else spark.createDataFrame([], schema=DECODE_OUTPUT_SCHEMA)
-
     if matches.missing:
-        unmatched_image_ids = [candidate["image_id"] for candidate in matches.missing]
-        missing_ids_df = _image_ids_df(spark, unmatched_image_ids)
-        missing_df = label_valid_df.join(missing_ids_df, on="image_id", how="inner")
+        missing_ids_df = _image_ids_df(spark, [candidate["image_id"] for candidate in matches.missing])
         rejections.add(
-            missing_df,
+            label_valid_df.join(missing_ids_df, on="image_id", how="inner"),
             F.lit("missing from source archive"),
             bronze_uri_col=bronze_uri_col,
             description="Label-valid rows missing from their source archive (rejected)",
         )
 
-    image_invalid_df = decoded_df.where(~F.col("valid"))
-    image_valid_df = decoded_df.where(F.col("valid"))
-
+    decoded_df = spark.createDataFrame(decoded_rows, schema=DECODE_OUTPUT_SCHEMA)
     rejections.add(
-        image_invalid_df,
+        decoded_df.where(~F.col("valid")),
         F.col("validation_reason"),
         description="Images failing decode/dimension validation (rejected)",
     )
 
-    logger.info(f"Candidate images decoded: {decoded_df.count()}")
-    logger.info(f"Images passing validation: {image_valid_df.count()}")
+    valid_count = sum(row["valid"] for row in decoded_rows)
+    logger.info(f"Candidate images decoded: {len(decoded_rows)}, passing validation: {valid_count}")
 
-    return image_valid_df
+    return decoded_df.where(F.col("valid"))
 
 
 def build_accepted_rows(label_valid_df, image_valid_df, label_columns: list[str], dataset_key: str):
@@ -646,29 +617,26 @@ def write_silver_dataset(
     overwrite_where(spark, image_inventory_df, silver_tables["image_inventory"], predicate)
     overwrite_where(spark, rejections.to_dataframe(spark), silver_tables["rejected_records"], predicate)
 
-    logger.info(f"Accepted images written to image_inventory: {image_inventory_df.count()}")
-    logger.info(f"Leakage-control groups: {leakage_groups_df.count()}")
+    for name in ("image_inventory", "leakage_groups", "rejected_records"):
+        row_count = _dataset_rows(spark, silver_tables[name], rejections.dataset_key).count()
+        logger.info(f"{name}: {row_count} rows for {rejections.dataset_key}")
 
 
-def print_silver_outputs(
-    spark,
-    display,
-    silver_tables: dict,
-    label_columns: list[str],
-    dataset_key: str,
-    image_inventory_df,
-    leakage_groups_df,
-) -> None:
-    """Show one dataset's Silver results: rejection reasons, validation status, label distributions
-    and leakage-group sizes. The inventory and group DataFrames come from assign_leakage_groups;
-    rejections are read back from silver.rejected_records.
+def _dataset_rows(spark, table: str, dataset_key: str):
+    """One dataset's rows of a shared Silver table."""
+    return spark.table(table).where(F.col("dataset_key") == dataset_key)
+
+
+def print_silver_outputs(spark, display, silver_tables: dict, label_columns: list[str], dataset_key: str) -> None:
+    """Show one dataset's Silver results, read back from the written tables: rejection reasons,
+    validation status, label distributions and leakage-group sizes.
     """
+    image_inventory_df = _dataset_rows(spark, silver_tables["image_inventory"], dataset_key)
+    leakage_groups_df = _dataset_rows(spark, silver_tables["leakage_groups"], dataset_key)
+
     print("Rejection reasons:")
     display(
-        spark.table(silver_tables["rejected_records"])
-        .where(F.col("dataset_key") == dataset_key)
-        .groupBy("rejection_reason")
-        .count()
+        _dataset_rows(spark, silver_tables["rejected_records"], dataset_key).groupBy("rejection_reason").count()
     )
 
     print("Validation status:")

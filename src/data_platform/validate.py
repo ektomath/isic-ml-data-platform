@@ -4,11 +4,10 @@ from __future__ import annotations
 
 import io
 
-import pandas as pd
 from PIL import Image, UnidentifiedImageError
 
 # Defaults. A dataset whose images are normally outside these limits passes its own to
-# decode_image/decode_batch; see docs/datasets/.
+# decode_image; see docs/datasets/.
 MIN_DIMENSION = 50
 MAX_DIMENSION = 15000
 
@@ -31,33 +30,3 @@ def decode_image(image_bytes: bytes, min_dimension: int = MIN_DIMENSION, max_dim
 
     return {"valid": True, "width": width, "height": height, "format": image_format}
 
-
-def decode_batch(batches, min_dimension: int = MIN_DIMENSION, max_dimension: int = MAX_DIMENSION):
-    """Run decode_image over batches of (image_id, source_split, bronze_uri, image_bytes).
-
-    Generator shaped for Spark's `mapInPandas`: takes an iterator of pandas
-    DataFrames, yields an iterator of pandas DataFrames. Only needs pandas,
-    not pyspark, so it's callable and testable without a Spark session.
-    `min_dimension`/`max_dimension` pass straight through to decode_image; a
-    caller overriding them typically binds this via functools.partial first
-    (mapInPandas calls the function with just the batch iterator).
-    """
-    for batch in batches:
-        results = []
-        for image_id, source_split, bronze_uri, image_bytes in zip(
-            batch["image_id"], batch["source_split"], batch["bronze_uri"], batch["image_bytes"], strict=True
-        ):
-            outcome = decode_image(bytes(image_bytes), min_dimension=min_dimension, max_dimension=max_dimension)
-            results.append(
-                {
-                    "image_id": image_id,
-                    "source_split": source_split,
-                    "bronze_uri": bronze_uri,
-                    "valid": outcome["valid"],
-                    "image_width": outcome.get("width"),
-                    "image_height": outcome.get("height"),
-                    "image_format": outcome.get("format"),
-                    "validation_reason": outcome.get("reason"),
-                }
-            )
-        yield pd.DataFrame(results)

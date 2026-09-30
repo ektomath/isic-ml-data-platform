@@ -13,6 +13,7 @@ pyspark = pytest.importorskip("pyspark")
 if shutil.which("java") is None:
     pytest.skip("Java is needed to start a local SparkSession", allow_module_level=True)
 
+from archive_fixtures import build_archive, checksum, jpeg_bytes  # noqa: E402
 from pyspark.sql import SparkSession  # noqa: E402
 from pyspark.sql import functions as F  # noqa: E402
 
@@ -25,6 +26,7 @@ from data_platform.spark_io import (  # noqa: E402
     build_accepted_rows,
     build_manifest_rows,
     sql_string,
+    validate_images,
 )
 
 
@@ -215,3 +217,48 @@ def test_build_manifest_rows_requires_a_git_commit(spark):
 
 def test_sql_string_escapes_quotes():
     assert sql_string("it's") == "'it''s'"
+
+
+def test_validate_images_accepts_valid_images_and_rejects_the_rest(spark, tmp_path):
+    good, tiny = jpeg_bytes((255, 0, 0), size=64), jpeg_bytes((0, 255, 0), size=8)
+    archive_path = build_archive(tmp_path, {"good.jpg": good, "tiny.jpg": tiny, "corrupt.jpg": b"not an image"})
+    archive_uri = "/Volumes/landing/archive.zip"
+    candidates = [
+        ("good", good), ("tiny", tiny), ("corrupt", b"not an image"), ("missing", b"never in the archive"),
+    ]
+    label_valid_df = spark.createDataFrame(
+        [(image_id, "train", checksum(data), f"archive:{archive_uri}#{image_id}.jpg") for image_id, data in candidates],
+        "image_id STRING, source_split STRING, source_checksum STRING, source_uri STRING",
+    )
+    rejections = Rejections("isic_2019")
+
+    image_valid_df = validate_images(
+        spark,
+        label_valid_df,
+        [{"archive_dbfs_path": archive_uri, "staged_archive_path": archive_path}],
+        rejections,
+    )
+
+    valid = image_valid_df.collect()
+    assert [(row["image_id"], row["image_width"], row["image_format"]) for row in valid] == [("good", 64, "JPEG")]
+    reasons = {row["image_id"]: row["rejection_reason"] for row in rejections.to_dataframe(spark).collect()}
+    assert set(reasons) == {"tiny", "corrupt", "missing"}
+    assert reasons["missing"] == "missing from source archive"
+    assert "minimum" in reasons["tiny"]
+
+
+def test_validate_images_fails_when_an_archive_changed_after_ingestion(spark, tmp_path):
+    archive_path = build_archive(tmp_path, {"a.jpg": jpeg_bytes((255, 0, 0), size=64)})
+    archive_uri = "/Volumes/landing/archive.zip"
+    label_valid_df = spark.createDataFrame(
+        [("a", "train", "checksum-recorded-at-ingestion", f"archive:{archive_uri}#a.jpg")],
+        "image_id STRING, source_split STRING, source_checksum STRING, source_uri STRING",
+    )
+
+    with pytest.raises(RuntimeError, match="no longer match"):
+        validate_images(
+            spark,
+            label_valid_df,
+            [{"archive_dbfs_path": archive_uri, "staged_archive_path": archive_path}],
+            Rejections("isic_2019"),
+        )
