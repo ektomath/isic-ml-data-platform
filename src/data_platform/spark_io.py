@@ -1,34 +1,10 @@
-"""Shared Spark helpers for Bronze, Silver, Gold, and Gold-export notebooks.
-Requires a live Spark session, not unit-testable locally.
+"""Spark steps for the Bronze, Silver, Gold and shard-export notebooks, in that order in this file.
+Everything is dataset-agnostic: a dataset's notebook passes in its tables and paths (from
+build_layout), its dataset_key and its label function. Tested on a local SparkSession in
+tests/test_spark_io.py.
 
-Every function here is dataset-agnostic: none references an ISIC-2019-specific
-column, table, or value. A dataset's notebook supplies the dataset-specific bits
-(table/path dicts from `build_layout`, its `dataset_key`, which raw columns feed
-label normalization, the resulting label column names, its own
-`normalize_labels`-shaped function) and calls these in sequence.
-
-Organized in five sections, marked below: shared low-level plumbing used by
-every layer, the Bronze pipeline, the Silver pipeline, the Gold pipeline, and
-the Gold export pipeline. This was briefly split into a `spark_io/` package
-(one submodule per section) and then merged back into this single file —
-not every pure-Python module in this project splits cleanly by medallion
-layer (`files.py`/`dataset_layout.py` are genuinely used across Bronze,
-Silver, *and* Gold export, not one layer each), and a partial, inconsistent
-application of layer-based splitting was judged not worth keeping. The one
-piece of that reorganization kept: `write_gold_shards_for_splits` (Gold shard
-packing) lives in `data_platform.shard_export` instead of here, since it
-needs no Spark session at all — an orthogonal "does this need Spark"
-distinction, the same one that already separates this module from
-`files.py`/`validate.py`/`labels.py`/`sampling.py`/`dataset_layout.py`, not a
-medallion-layer split.
-
-Never call `.cache()`/`.persist()`/`.unpersist()` anywhere in this module (or in
-any notebook cell). Databricks serverless compute does not support them —
-`DataFrame.cache()` triggers `[NOT_SUPPORTED_WITH_SERVERLESS] PERSIST TABLE is
-not supported on serverless compute`, so it fails at runtime rather than just
-being a missed optimization. If a DataFrame is genuinely expensive and feeds
-more than one downstream action, write it to a scratch Delta table and read it
-back instead, which works everywhere including serverless.
+No .cache() or .persist(): serverless compute doesn't support them. A DataFrame reused by several
+actions is written to a scratch table and read back instead.
 """
 
 from __future__ import annotations
@@ -64,7 +40,7 @@ from data_platform.validate import MAX_DIMENSION, MIN_DIMENSION, decode_batch
 logger = logging.getLogger(__name__)
 
 # ============================================================================
-# Shared (Bronze + Silver) — generic plumbing, not tied to either layer
+# Shared helpers
 # ============================================================================
 
 
@@ -92,20 +68,9 @@ def overwrite_where(spark, df, target_table: str, predicate: str) -> None:
 
 
 def bronze_image_uri(source_archive_uri, archive_member_path):
-    """Build the archive:<source_archive_uri>#<archive_member_path> URI used to locate an
-    image's bytes, as a lazy Spark Column expression.
-
-    Unlike the old table-row pointer this replaces, this URI is real and resolvable:
-    `data_platform.files.parse_bronze_uri` recovers (source_archive_uri, archive_member_path)
-    from it, and that pair alone is enough to find the image's bytes in its source archive —
-    no Bronze table lookup needed. This has to be true now, since no layer stores image bytes
-    at all (see docs/decisions/004-stream-archives-no-blob-storage.md) — the pointer is the
-    only way back to the bytes.
-
-    This builds the same string as `data_platform.files.format_bronze_uri`, just as a Spark
-    Column instead of a plain Python string — Spark Columns are evaluated per-row inside
-    Spark, so this can't just call that function directly. Driver-side Python code
-    reconstructing this string should call `format_bronze_uri` instead of retyping the format.
+    """The same `archive:<source_archive_uri>#<archive_member_path>` string as
+    files.format_bronze_uri, built as a Spark Column. No layer stores image bytes, so this URI is
+    the only way back to them (ADR 004).
     """
     return F.concat(F.lit("archive:"), source_archive_uri, F.lit("#"), archive_member_path)
 
@@ -164,15 +129,10 @@ class Rejections:
 
 
 def assert_controlled_vocabularies(df, controlled_vocabularies: dict[str, tuple[str, ...]], context: str = "") -> None:
-    """Raise if any column in `controlled_vocabularies` holds a non-null value outside its allowed set.
-
-    Checks every column in one aggregation (a single Spark action) rather than one
-    `.collect()` per column. A violation means whatever produced that column's
-    values doesn't map onto the shared vocabulary — a systematic bug in that code,
-    not per-row data variance — so this raises and fails the run rather than
-    rejecting individual rows the way `Rejections.add` does. `context` is an optional
-    string (e.g. `f"dataset_key={dataset_key!r}"`) included in the error message to
-    help locate the caller.
+    """Raise if any column in `controlled_vocabularies` holds a non-null value outside its allowed
+    set. All columns are checked in one aggregation. A bad value means the code producing the column
+    is wrong, not the row, so the run fails instead of rejecting rows. `context` is added to the
+    error message.
     """
     if not controlled_vocabularies:
         return
@@ -203,14 +163,8 @@ def assert_controlled_vocabularies(df, controlled_vocabularies: dict[str, tuple[
 
 
 # ============================================================================
-# Bronze pipeline — write_image_index_table/load_combined_metadata assume
-# archive-based ingestion (say so in their own docstrings); write_ingestion_run
-# and print_bronze_outputs are ingestion-source-agnostic.
-#
-# No image bytes are ever written here — write_image_index_table streams each
-# archive only to compute checksum/byte_length, and records where the image
-# lives (source_archive_uri + archive_member_path), never the bytes themselves.
-# See docs/decisions/004-stream-archives-no-blob-storage.md.
+# Bronze: index the archives (checksums and locations, never bytes), load the source
+# metadata and record ingestion runs.
 # ============================================================================
 
 IMAGE_INDEX_SCHEMA = StructType(
@@ -226,16 +180,12 @@ IMAGE_INDEX_SCHEMA = StructType(
 
 
 def write_image_index_table(spark, archives: list[dict], target_table: str):
-    """Stream locally staged zip archives to compute each image's checksum/byte_length and
-    write the index rows (no image bytes) to target_table in one overwrite, deduping
-    (image_id, source_split) first. Index rows are small, so they're collected in memory and
-    written once: the table is either fully replaced or left as it was. Returns
-    image_manifest_df (image_id, source_split, source_uri, source_checksum).
+    """Stream the staged archives to compute each image's checksum and size, then write the index
+    rows (no bytes) to `target_table` in one overwrite, after deduplicating on (image_id,
+    source_split). Returns image_manifest_df (image_id, source_split, source_uri, source_checksum).
 
-    Each archive dict needs `staged_archive_path`, `source_split`, `archive_dbfs_path`, and
-    `archive_filename` already set (e.g. by
-    `data_platform.files.stage_archives_and_extract_metadata`). Assumes archive-based
-    ingestion; a dataset ingesting images another way needs its own writer.
+    Each archive dict needs `staged_archive_path`, `source_split`, `archive_dbfs_path` and
+    `archive_filename`, as set by files.stage_archives_and_extract_metadata.
     """
     seen_keys = set()
     index_rows = []
@@ -336,14 +286,8 @@ def write_ingestion_run(
 def print_bronze_outputs(
     spark, dbutils, display, landing_paths: dict, bronze_paths: dict, bronze_tables: dict, dataset_name: str
 ) -> None:
-    """Print/display Bronze ingestion outputs: landed archive contents, Bronze metadata
-    path contents, image index row counts by split, recent ingestion runs for this
-    dataset, a metadata sample, and a sample index row. `image_index`/`source_metadata`
-    are already dataset-specific tables (no filter needed); `ingestion_runs` is shared
-    across datasets, so it's filtered by `dataset_name`.
-
-    `spark`, `dbutils`, and `display` are passed in explicitly rather than assumed to
-    be notebook globals, same reasoning as everywhere else in this module.
+    """Show what Bronze ingestion produced: the landed archives, the metadata folder, index counts
+    by split, this dataset's recent ingestion runs, and sample rows.
     """
     print("Landing archive contents:")
     display(dbutils.fs.ls(landing_paths["dataset_archive"]))
@@ -369,15 +313,10 @@ def print_bronze_outputs(
 
 
 # ============================================================================
-# Silver pipeline — reconcile_bronze_records, apply_label_normalization,
-# validate_images, build_accepted_rows, assign_leakage_groups, write_silver_dataset,
-# print_silver_outputs, called in that order from a dataset's Silver notebook.
-# Nothing is written until write_silver_dataset, which replaces this dataset's rows
-# in all three Silver tables, so a rerun always leaves exactly one run's results.
-# Silver table DDL itself is not here — it's inline in
-# 00_setup_storage_and_shared_tables.ipynb, alongside bronze.ingestion_runs and
-# gold.manifest_rows, so that notebook shows every shared table it creates
-# directly rather than through a wrapper function.
+# Silver: reconcile_bronze_records, apply_label_normalization, validate_images,
+# build_accepted_rows, assign_leakage_groups, write_silver_dataset and print_silver_outputs,
+# in the order a dataset's Silver notebook calls them. Nothing is written until
+# write_silver_dataset, which replaces the dataset's rows in all three Silver tables.
 # ============================================================================
 
 DECODE_OUTPUT_SCHEMA = StructType(
@@ -448,30 +387,18 @@ def apply_label_normalization(
     controlled_vocabularies: dict[str, tuple[str, ...]] | None = None,
     scratch_table: str | None = None,
 ):
-    """Apply a dataset-specific label-normalization function as a Spark UDF.
+    """Run a dataset's label function over the metadata and return the rows with a resolved label.
 
-    `normalize_fn(*input_columns) -> dict[str, str]` supplies the mapping logic;
-    this handles wrapping it as a UDF, exploding its dict output into real columns
-    (one per `label_columns` entry), splitting rows into label-valid vs unlabeled
-    (a row is valid if any label_columns value resolved), and rejecting the
-    unlabeled ones. Returns the label-valid DataFrame.
+    `normalize_fn(*input_columns)` returns a dict of label values; it runs as a UDF and its output
+    becomes one column per `label_columns` entry. Rows where no label resolved are rejected.
 
-    `controlled_vocabularies` optionally maps a subset of `label_columns` to the
-    fixed set of values that column may hold (e.g. `{"malignancy":
-    data_platform.labels.MALIGNANCY_VALUES}`). A `label_columns` entry absent
-    from this dict (e.g. `specific_diagnosis`) is open-ended free text and is
-    never checked — this guards only the label axes meant to be cross-dataset
-    comparable (see docs/decisions/002-silver-label-columns-not-map.md).
+    `controlled_vocabularies` maps label columns to their allowed values (e.g. {"malignancy":
+    MALIGNANCY_VALUES}); free-text columns such as specific_diagnosis are left out (ADR 002). A
+    value outside the vocabulary fails the run, since it means normalize_fn is wrong. The check
+    reads metadata only, before any image bytes.
 
-    `scratch_table`, when given, is where the labelled rows are written once, so the label
-    function isn't recomputed by every later step (use `scratch_table_name`).
-
-    Checked on labeled_df (metadata only, before any image bytes are read), so
-    it's cheap. A value outside the vocabulary means
-    normalize_fn itself has a bug — every row with that underlying source value
-    would fail identically, it isn't per-row data variance — so this raises and
-    fails the run rather than rejecting individual rows the way the
-    unresolved-label path below does.
+    `scratch_table`, when given, is where the labelled rows are written once, so the label function
+    isn't recomputed by every later step (use `scratch_table_name`).
     """
     normalize_fn_udf = F.udf(normalize_fn, MapType(StringType(), StringType()))
 
@@ -519,33 +446,17 @@ def validate_images(
     max_dimension: int = MAX_DIMENSION,
     decode_flush_rows: int = 2000,
 ):
-    """Stream each archive in `archives` (already locally staged, e.g. by
-    `data_platform.files.stage_archives_and_extract_metadata`) looking only for
-    `label_valid_df`'s candidate images, decode+validate each one found via
-    `data_platform.validate.decode_batch`, reject anything missing from its archive
-    or failing decode/dimension validation, and return the DataFrame of valid,
-    decoded images. Decode results go to a scratch table in the Silver schema
-    (`silver_tables` is only used to name it), overwritten on every run.
+    """Decode and validate the images for `label_valid_df`'s rows and return the valid ones. Images
+    missing from their archive or failing decode or dimension checks are rejected.
 
-    No image bytes are ever joined from a Bronze table or persisted anywhere — each
-    candidate's bytes are read from its source archive, decoded, and discarded within
-    this function (see docs/decisions/004-stream-archives-no-blob-storage.md). Archive
-    streaming happens driver-side, the same already-proven access pattern Bronze
-    ingestion uses (`write_image_index_table`), rather than distributing byte reads
-    across executors.
+    The archives must already be staged locally; each is streamed once on the driver, as in Bronze
+    ingestion. Bytes are decoded and dropped, never stored (ADR 004). Decode results go to a scratch
+    table in the Silver schema, overwritten on each run.
 
-    Each freshly-streamed image's checksum is compared against `source_checksum` already
-    recorded on `label_valid_df` (Bronze's, computed at ingestion time) — raises
-    immediately (does not just reject the affected rows) if any mismatch, since that
-    means the source archive changed after ingestion, violating the immutability every
-    downstream `bronze_uri` reference depends on, not routine per-row data variance. See
-    docs/decisions/005-immutable-source-archives-checksum-verified.md.
+    A checksum that no longer matches Bronze's fails the run instead of rejecting the row: the
+    source archive changed after ingestion (ADR 005).
 
-    `archives` must be the same list shape `resolve_archive_paths`/
-    `stage_archives_and_extract_metadata` already produce elsewhere in this project,
-    staged locally before this call. `min_dimension`/`max_dimension` default to
-    `data_platform.validate`'s defaults; override them for a dataset whose images are
-    a structurally different size range (see docs/datasets/).
+    `min_dimension`/`max_dimension` default to data_platform.validate's limits.
     """
     candidate_rows = label_valid_df.select(
         "image_id", "source_split", "source_checksum", F.col(bronze_uri_col).alias("bronze_uri")
@@ -581,11 +492,8 @@ def validate_images(
     matches = ArchiveMatches(candidates_by_archive_uri, staged_path_by_archive_uri)
     pending_rows: list[dict] = []
 
-    # Not a per-row data-quality issue when a mismatch turns up below -- the source
-    # archive itself changed since Bronze ingestion computed source_checksum, which
-    # breaks the immutability invariant every downstream reference (bronze_uri, and
-    # eventually a Gold manifest) depends on. See
-    # docs/decisions/005-immutable-source-archives-checksum-verified.md.
+    # A mismatch below means the source archive changed after Bronze ingestion, not a bad row,
+    # so it fails the run (ADR 005).
     for candidate_row, archive_row in matches:
         pending_rows.append(
             {
@@ -633,13 +541,9 @@ def validate_images(
 
 
 def build_accepted_rows(label_valid_df, image_valid_df, label_columns: list[str], dataset_key: str):
-    """Join label-valid metadata rows to image-valid decode results into one
-    accepted-row-shaped DataFrame: dataset_key, universal Silver columns, and
-    label_columns.
-
-    patient_id/lesion_id are optional per dataset (see docs/data_contract.md) — a
-    dataset whose Bronze source metadata has no such column gets NULL there instead
-    of this failing outright.
+    """Join label-valid metadata to the valid decode results: one row per accepted image, with
+    dataset_key, the Silver columns and the label columns. patient_id and lesion_id are NULL for a
+    dataset that doesn't have them.
     """
     joined_df = label_valid_df.join(image_valid_df, on=["image_id", "source_split"])
     identity_columns = [
@@ -755,21 +659,9 @@ def print_silver_outputs(
     image_inventory_df,
     leakage_groups_df,
 ) -> None:
-    """Print/display accepted-vs-rejected summary stats for one dataset's Silver
-    validation run: rejection reasons, validation status, per-label-column
-    distribution, and leakage-group sizes.
-
-    `image_inventory_df`/`leakage_groups_df` are the DataFrames returned by
-    `assign_leakage_groups` for this same run — passed in rather
-    than re-read from storage, since they're already the tables' current state (see
-    that function's docstring). `rejected_records` has no such single in-memory
-    DataFrame (rejections are written separately across three earlier pipeline
-    stages), so it's read back from storage here and filtered by `dataset_key`,
-    since the underlying table is shared across every dataset.
-
-    `display` is passed in explicitly rather than assumed to be a notebook global,
-    same reasoning as `spark`: it's injected into the calling notebook's namespace
-    by the Databricks runtime, not into arbitrary imported modules.
+    """Show one dataset's Silver results: rejection reasons, validation status, label distributions
+    and leakage-group sizes. The inventory and group DataFrames come from assign_leakage_groups;
+    rejections are read back from silver.rejected_records.
     """
     print("Rejection reasons:")
     display(
@@ -795,33 +687,19 @@ def print_silver_outputs(
 
 
 # ============================================================================
-# Gold pipeline — build_gold_candidate_groups, write_gold_manifest_rows,
-# print_gold_outputs, called in that order from a Gold manifest notebook (e.g.
-# 30_create_gold_manifest.ipynb). gold.manifest_rows's DDL is not here — it's inline
-# in 00_setup_storage_and_shared_tables.ipynb, same reasoning as Silver's
-# tables (that notebook also creates gold.manifest_registry, a view
-# summarizing gold.manifest_rows one row per dataset_version). manifest_rows
-# is one shared, cross-dataset table like Silver's, but versioned by
-# dataset_version rather than partitioned per dataset — more than one release
-# (e.g. "sample-v1" and a later "v1") can coexist in it.
+# Gold: build_gold_candidate_groups, assert_no_cross_dataset_duplicate_checksums,
+# build_manifest_rows, write_gold_release and print_gold_outputs, called from
+# 30_create_gold_manifest.ipynb. gold.manifest_rows holds every release, keyed by
+# dataset_version.
 # ============================================================================
 
 
 def build_gold_candidate_groups(spark, silver_tables: dict, dataset_key: str, label_column: str) -> list[dict]:
-    """Aggregate silver.image_inventory (dataset_key, non-null label_column) joined to
-    silver.leakage_groups into one row per leakage-control group: group_id, image_count,
-    and a representative label.
+    """Summarize one dataset's accepted, labelled images as one row per leakage group: group_id,
+    image_count and label. Returned as a list of dicts, so sampling runs without Spark.
 
-    The representative label is label_column's value on the lexicographically-first
-    image_id in the group — a deliberate simplification, not a bug: most groups share
-    one label across every image in them, and a small sample manifest doesn't need
-    exact per-image precision here (see data_platform.sampling's own docstring for the
-    same discipline applied to sampling/splitting).
-
-    Metadata-only aggregation over the full accepted table for dataset_key (no image
-    bytes — a cheap groupBy), then collected to the driver: one small row per *group*, not
-    per image, so this stays cheap even at tens of thousands of source rows. Returns a
-    plain list of dicts so data_platform.sampling's logic never needs Spark.
+    A group's label is the one on its first image_id. Groups nearly always share one label, so this
+    simplification is accepted.
     """
     inventory_df = (
         spark.table(silver_tables["image_inventory"])
@@ -847,21 +725,10 @@ def build_gold_candidate_groups(spark, silver_tables: dict, dataset_key: str, la
 
 
 def assert_no_cross_dataset_duplicate_checksums(spark, silver_tables: dict, dataset_keys: list[str]) -> None:
-    """Raise if the same source_checksum appears under more than one of dataset_keys' accepted
-    silver.image_inventory rows -- the sound signal for real cross-dataset image duplication.
-    patient_id/lesion_id are dataset-issued and deliberately NOT compared here, since they're
-    not guaranteed globally unique/consistent across datasets, unlike source_checksum (a
-    SHA-256 of the raw bytes). See docs/decisions/003-cross-dataset-leakage-not-checked.md.
-
-    A no-op when dataset_keys has fewer than 2 entries -- cross-dataset duplication is only
-    possible once a manifest actually spans more than one dataset_key, matching
-    build_gold_candidate_groups being called once per dataset_key rather than this check being
-    folded into it. Call this once, before select_sample_and_splits assigns splits: a real
-    duplicate that goes undetected could otherwise land in different splits across its two
-    dataset_key copies -- real train/test leakage -- which is exactly what this check exists to
-    catch before sampling happens, not report after the fact.
-
-    Metadata-only aggregation (no image bytes), same posture as build_gold_candidate_groups.
+    """Raise if the same image (the same source_checksum) was accepted in more than one of
+    `dataset_keys`. Run it before splits are assigned, since two copies of one image could otherwise
+    land in train and test. Patient and lesion IDs aren't compared, because each dataset issues its
+    own (ADR 003). Does nothing for a single dataset.
     """
     if len(dataset_keys) < 2:
         return
@@ -1040,32 +907,16 @@ def print_gold_outputs(
 
 
 # ============================================================================
-# Gold export pipeline — load_manifest_rows_for_export, export_source_metadata_csv,
-# print_export_outputs, called in that order from
-# notebooks/31_export_gold_shards.ipynb, after a dataset_version's manifest rows
-# already exist (written by write_gold_manifest_rows above). The actual
-# shard-packing step between these two, `write_gold_shards_for_splits`, needs no
-# Spark session at all and lives in `data_platform.shard_export` instead — see
-# that module's docstring for why.
-#
-# Shards are a fully rebuildable, derived cache — never a second source of
-# truth for image bytes, same as every other layer in this project — see
-# docs/decisions/004-stream-archives-no-blob-storage.md. Retention itself is
-# an open question, not decided — see
-# docs/decisions/006-gold-shard-retention-undecided.md.
+# Gold export: load_manifest_rows_for_export, export_source_metadata_csv and
+# print_export_outputs, called from 31_export_gold_shards.ipynb. Writing the shards needs no
+# Spark and lives in data_platform.shard_export.
 # ============================================================================
 
 
 def load_manifest_rows_for_export(spark, gold_tables: dict, dataset_version: str) -> dict[str, list[dict]]:
-    """Driver-collect gold.manifest_rows for one release, grouped by split.
-
-    Metadata-only (image_id, dataset_key, bronze_uri, source_checksum, label, group_id)
-    — no image bytes touched here. source_checksum is carried through so
-    `data_platform.shard_export.write_gold_shards_for_splits` can verify each image is
-    still what the manifest recorded
-    (docs/decisions/005-immutable-source-archives-checksum-verified.md).
-    Returns {split: [row_dict, ...]}, ready for write_gold_shards_for_splits to stream
-    bytes for, one split at a time.
+    """Collect one release's gold.manifest_rows to the driver, grouped by split: {split: [row,
+    ...]}. Metadata only; source_checksum is included so the shard export can verify each image (ADR
+    005).
     """
     manifest_df = (
         spark.table(gold_tables["manifest_rows"])
@@ -1083,31 +934,16 @@ def load_manifest_rows_for_export(spark, gold_tables: dict, dataset_version: str
 def export_source_metadata_csv(
     spark, source_metadata_table: str, dataset_key: str, image_ids: list[str], destination_path: str
 ) -> int:
-    """Write source_metadata_table's rows for exactly this release's image_ids to one CSV file
-    at destination_path -- age/sex/anatomic-site/diagnosis-hierarchy and every other raw Bronze
-    metadata column (see docs/data_contract.md's Bronze contracts) that otherwise never travels
-    any further down the pipeline than Bronze, unreachable once a shard export is downloaded
-    locally. Exported alongside the shards for local subgroup analysis, or for a multimodal
-    (image + tabular/text) model to join in by image_id -- the baseline ResNet-18 classifier
-    doesn't read it, but that's this project's current model, not a constraint this export
-    enforces.
+    """Write one dataset's Bronze source metadata (age, sex, anatomic site, diagnosis levels and the
+    rest) for this release's image_ids to a single CSV at `destination_path`. Returns the row count.
 
-    One dataset_key at a time (source_metadata_table is already one dataset_key's own Bronze
-    table, e.g. bronze.isic_2019_source_metadata) rather than a combined export across a
-    multi-dataset_key release -- different datasets' source metadata schemas genuinely differ
-    (docs/data_contract.md's two Bronze contracts don't share every column), so one CSV per
-    dataset_key avoids forcing a lossy common schema. The output still gets a `dataset_key`
-    column stamped on (source_metadata_table itself has none -- it's already scoped to one
-    dataset), so a multimodal model combining more than one dataset_key's CSV can tell which
-    dataset each row came from -- ml.metadata_preprocessing.build_metadata_transform's per-field
-    `source_columns`/`value_map` reconciliation keys off exactly this column (see
-    docs/decisions/009-pin-metadata-feature-config-per-training-run.md).
+    This metadata otherwise stays in Bronze. It's exported beside the shards for subgroup analysis,
+    or for a model that also takes tabular input, joined on image_id. There's one CSV per dataset
+    because their metadata columns differ; each row gets a dataset_key column, which
+    ml.metadata_preprocessing uses to reconcile columns across datasets (ADR 009).
 
-    Collected to the driver via toPandas() and written with pandas rather than Spark's own CSV
-    writer, so destination_path is one real file, not a directory of part-files to reassemble --
-    the same "collect small metadata to the driver" posture as build_gold_candidate_groups and
-    load_manifest_rows_for_export, since this is release-scoped metadata rows, never image
-    bytes. Returns the row count written.
+    Written with pandas so the output is one file rather than a folder of Spark part files; the rows
+    are small.
     """
     image_ids_df = _image_ids_df(spark, image_ids)
     metadata_pdf = (

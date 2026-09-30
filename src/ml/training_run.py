@@ -1,12 +1,6 @@
-"""Training-run config loading and resolution.
-
-Pure Python, no Spark dependency -- unit-tested locally (see tests/test_ml_training_run.py).
-
-`config/gold/training_runs/<name>.yaml` pins exactly one dataset_version to exactly one
-preprocessing_version (see docs/decisions/007-pin-data-and-preprocessing-per-training-run.md).
-`resolve_training_run` is the one place a `training_run_name` turns into everything downstream
-training code needs -- the enforcement point for "the entrypoint accepts only this one name,"
-never free-standing dataset_version/preprocessing_version parameters.
+"""Loads training-run configs. config/gold/training_runs/<name>.yaml pins one dataset_version to one
+preprocessing_version (ADR 007), and resolve_training_run turns that name into everything training
+needs. Pure Python (tests/test_ml_training_run.py).
 """
 
 from __future__ import annotations
@@ -59,17 +53,11 @@ def load_training_run_config(config_root: str | Path, training_run_name: str) ->
 
 
 def resolve_training_run(config_root: str | Path, training_run_name: str) -> TrainingRunSpec:
-    """Load and validate training_run_name's config, then load and validate its referenced
-    preprocessing config -- the single call that turns a name into a fully resolved,
-    ready-to-train-with spec. Raises ValueError on any missing/malformed field in either config.
+    """Load and check a training run's config and the preprocessing config it names, and return the
+    resolved spec. Raises ValueError on a missing or malformed field.
 
-    `metadata_preprocessing_version` is optional -- most training runs are image-only, so most
-    configs omit it. When set, its referenced config/metadata_preprocessing/<name>.yaml is
-    loaded and validated the same way preprocessing_version's is, so a multimodal (image +
-    tabular/text) model can build its metadata feature vector
-    (ml.metadata_preprocessing.build_metadata_transform) from a pinned, versioned recipe rather
-    than an ad hoc local column selection -- see
-    docs/decisions/009-pin-metadata-feature-config-per-training-run.md.
+    `metadata_preprocessing_version` is optional; when set, its config is loaded and checked too,
+    for models that also take tabular metadata (ADR 009).
     """
     config = load_training_run_config(config_root, training_run_name)
     preprocessing_config = load_preprocessing_config(config_root, config["preprocessing_version"])

@@ -1,21 +1,8 @@
-"""Pure-Python Gold shard packing. No Spark/dbutils dependency, unit-tested
-locally like data_platform.files/validate/labels/sampling (see
-tests/test_shard_export.py).
+"""Packs a Gold release's images into MosaicML shards. Needs no Spark session, so it's tested
+locally (tests/test_shard_export.py). Kept apart from files.py because mosaicml-streaming is a heavy
+dependency that only the shard export needs.
 
-This lives outside data_platform.spark_io on purpose, even though it's only
-ever called from a Gold notebook: it needs no live Spark session at all (no
-`spark`/`dbutils` parameter anywhere below), so it doesn't belong in the
-"requires Spark" bucket just because of where it's called from. Kept out of
-files.py too — `streaming.MDSWriter` (mosaicml-streaming) is a real, heavy
-dependency (pulls in torch/torchvision/transformers transitively) that only
-Gold shard export needs; folding this in would drag that import into every
-consumer of files.py, including plain Bronze ingestion, which never touches
-shards at all.
-
-Shards are a derived, fully rebuildable cache, never a second source of truth
-for image bytes — see docs/decisions/004-stream-archives-no-blob-storage.md.
-Retention (how long an export is kept around) is a separate, currently
-undecided question — see docs/decisions/006-gold-shard-retention-undecided.md.
+Shards are a rebuildable cache, never a copy of the image bytes to rely on (ADR 004).
 """
 
 from __future__ import annotations
@@ -40,40 +27,25 @@ def write_gold_shards_for_splits(
     shard_dir_by_split: dict[str, str],
     size_limit_bytes: int,
 ) -> dict[str, dict]:
-    """Stream every split's sampled images out of their source archives in one pass and
-    write each into its own streaming.MDSWriter shard set.
+    """Stream every split's images out of their source archives and write each split's shards with
+    MDSWriter.
 
-    A source archive commonly contributes images to more than one split (splits are
-    assigned per leakage-control group, not per archive), so this opens one MDSWriter
-    per split up front and streams each referenced archive exactly once, routing each
-    matched image to its own split's writer as it's read — rather than opening and
-    re-scanning the same archive once per split. No image bytes are persisted anywhere
-    except the shard files themselves — each image is read from its source archive,
-    written straight into its shard, and discarded (see
-    docs/decisions/004-stream-archives-no-blob-storage.md).
+    Each referenced archive is read once, with every image routed to its split's writer, since one
+    archive usually feeds several splits. Image bytes go straight from the archive into the shard
+    and nowhere else (ADR 004).
 
-    `rows_by_split` must be `data_platform.spark_io.load_manifest_rows_for_export`'s
-    `{split: [row, ...]}` shape (each row: `image_id`, `dataset_key`, `bronze_uri`,
-    `source_checksum`, `label`, `group_id`). `staged_path_by_archive_uri` maps every
-    referenced source_archive_uri to its locally staged path (building it, across every
-    dataset_key in the release, reusing
-    data_platform.files.stage_archives_and_extract_metadata per dataset, is the calling
-    notebook's job, same staging step Bronze/Silver already do). `shard_dir_by_split`
-    gives each split's own output directory.
+    `rows_by_split` is load_manifest_rows_for_export's output: {split: [row, ...]}, each row with
+    image_id, dataset_key, bronze_uri, source_checksum, label and group_id.
+    `staged_path_by_archive_uri` maps each source_archive_uri to its locally staged copy, and
+    `shard_dir_by_split` gives each split's output directory.
 
-    Shards are written to a `<split dir>.partial` folder next to each split's final folder,
-    and only moved into place once every split has been written and verified. If anything
-    fails, the partial folders are deleted and any previous export is left untouched, so a
-    split folder with an `index.json` (what training looks for) is always a complete, verified
-    export.
+    Shards are written to `<split dir>.partial` and moved into place only after every split is
+    written and verified. On failure the partial folders are deleted and the previous export is left
+    as it was, so a split folder with an index.json is always complete.
 
-    Raises if any manifest row can't be found in its source archive, or if a found
-    image's freshly-computed checksum doesn't match `source_checksum` already recorded
-    on the manifest row — unlike Silver's reject-and-continue handling of a normal
-    per-row data-quality issue, either case means an archive changed or was corrupted
-    after this manifest was published, which breaks the manifest's reproducibility
-    guarantee outright, not routine data variance. See
-    docs/decisions/005-immutable-source-archives-checksum-verified.md.
+    Raises if a manifest row isn't in its archive or its checksum no longer matches: the archive
+    changed after the release was published, which breaks the release (ADR 005). Silver, by
+    contrast, rejects such rows and carries on.
     """
     candidates_by_archive_uri: dict[str, dict[str, dict]] = defaultdict(dict)
     for split, rows in rows_by_split.items():

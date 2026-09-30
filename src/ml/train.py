@@ -1,13 +1,8 @@
-"""Baseline classifier training entry point.
+"""Train the baseline classifier, from the command line or from
+notebooks/40_train_baseline_classifier.ipynb. The two differ only in where the shards are (a local
+copy or a Volume) and how MLflow finds credentials (ADR 007, ADR 008).
 
-Works identically whether invoked as a local CLI/script or from a Databricks notebook cell
-(`notebooks/40_train_baseline_classifier.ipynb`) -- the only difference is where `--shards-root` points
-(a `databricks fs cp`'d local directory vs a mounted Databricks Volume, see
-docs/data_contract.md's Gold shard export section) and how MLflow credentials are resolved
-(`ml.mlflow_utils.configure_mlflow_tracking`). See docs/decisions/007 and 008 for the full design.
-
-Local CLI usage:
-    python -m ml.train --training-run-name sample-v1-resnet18 --shards-root /local/copied/shards
+    python -m ml.train --training-run-name sample-v1-resnet18 --shards-root ./shards
 """
 
 from __future__ import annotations
@@ -186,13 +181,9 @@ def model_signature(model: nn.Module, image_size: int, device: str):
 
 
 def check_shards_exist(base_shards_root: str, splits: tuple[str, ...] = ("train", "validation", "test")) -> None:
-    """Raise FileNotFoundError up front, listing every missing split at once, if any split's
-    shard directory doesn't exist yet under base_shards_root -- same "fail loud before the
-    expensive part" pattern as data_platform.files.check_archives_exist, rather than letting a
-    missing/wrong shards_root surface as a cryptic `RuntimeError: Stream contains no samples`
-    deep inside StreamingDataset construction. Checks for each split's `index.json`, the file
-    streaming.MDSWriter always writes last -- its presence is what actually means "this split
-    was fully exported," not just that the directory exists.
+    """Fail before training if any split has no index.json under base_shards_root, listing every
+    missing split. MDSWriter writes index.json last, so its presence means the split was fully
+    exported.
     """
     missing_splits = [
         split for split in splits if not Path(join_storage_path(base_shards_root, split), "index.json").exists()

@@ -1,16 +1,8 @@
-"""Metadata preprocessing-config loading and resolution into a runtime feature vector.
-
-Pure Python, no Spark dependency -- unit-tested locally like `ml.preprocessing`
-(see tests/test_ml_metadata_preprocessing.py).
-
-A metadata preprocessing config (`config/metadata_preprocessing/<name>.yaml`) is the versioned,
-reviewable answer to "which Bronze source-metadata fields does this model actually use, and how
-are they encoded" -- exactly the kind of decision (drop irrelevant fields, bucket/impute the
-rest) that must never happen as an ad hoc local edit to a downloaded CSV, or a trained model's
-reported metrics stop being traceable back to a reproducible input (see
-docs/decisions/009-pin-metadata-feature-config-per-training-run.md). Mirrors `ml.preprocessing`'s
-role for images: this module is the one place a config dict turns into an actual runtime
-transform, applied at training/inference load time only, never baked into a stored file.
+"""Turns a metadata preprocessing config (config/metadata_preprocessing/<name>.yaml) into a feature
+transform for tabular metadata. The config is the versioned record of which metadata fields a model
+uses and how they're encoded, so that choice is never an untracked edit to a downloaded CSV (ADR
+009). Like ml.preprocessing for images, it's applied at load time, never baked into stored files.
+Pure Python (tests/test_ml_metadata_preprocessing.py).
 """
 
 from __future__ import annotations
@@ -23,23 +15,18 @@ from ml.preprocessing import require_fields
 
 METADATA_PREPROCESSING_REQUIRED_FIELDS = ("metadata_preprocessing_version", "fields")
 
-# Each field's kind fixes which keys its own spec must carry -- "numeric" needs a sentinel for a
-# null/unparseable source value, "categorical" needs both its fixed vocabulary (order matters --
-# it fixes each category's one-hot slot, not derived from a scan) and a bucket for a null or
-# out-of-vocabulary value, so a config can never silently produce a different-shaped vector
-# depending on what happened to be present in the data it was built against.
+# The keys each field kind needs. "numeric" needs a fill value for a missing or unparseable
+# value; "categorical" needs its vocabulary (whose order fixes the one-hot positions) and a
+# bucket for missing or unknown values. So the vector's shape never depends on the data.
 _REQUIRED_FIELD_SPEC_KEYS_BY_KIND = {
     "numeric": ("name", "kind", "missing_value"),
     "categorical": ("name", "kind", "categories", "unknown_category"),
 }
 
 
-# Optional per-field keys, present only for a field that needs cross-dataset reconciliation
-# (docs/decisions/009-pin-metadata-feature-config-per-training-run.md's Decision section
-# on reconciling datasets): a release combining more than one dataset_key whose raw column names and/or raw
-# values for the "same" conceptual field don't already agree. Both are keyed by dataset_key,
-# and both are no-ops for a dataset_key not listed in them -- a single-dataset config (or a
-# field that happens to line up across every dataset in the release) never needs either.
+# Optional per-field keys for releases that combine datasets whose column names or values
+# differ for the same field (ADR 009). Both are keyed by dataset_key; a dataset not listed
+# uses the field as it is.
 _OPTIONAL_RECONCILIATION_KEYS = ("source_columns", "value_map")
 
 
@@ -106,15 +93,10 @@ def _encode_categorical(raw_value, category_to_index: dict[str, int], vocabulary
 
 
 def _resolve_raw_value(field: dict, raw_row: dict, dataset_key) -> object:
-    """Look up field's value on raw_row, reconciling cross-dataset column-name/value
-    differences first (docs/decisions/009-pin-metadata-feature-config-per-training-run.md's
-    Decision section). `source_columns.get(dataset_key, field["name"])` falls back to the
-    canonical name when this dataset_key isn't listed (including when raw_row carries no
-    "dataset_key" at all, e.g. a single-dataset config/export, matching dataset_key=None to
-    nothing) -- so a field with no reconciliation needed behaves exactly as it did before this
-    existed. `value_map` is applied after that column lookup, mapping this dataset_key's raw
-    value onto the config's canonical vocabulary; a value not present in the map (or no map for
-    this dataset_key) passes through unchanged.
+    """Read `field` from raw_row, reconciling dataset differences first (ADR 009). The column name
+    comes from `source_columns[dataset_key]`, falling back to the field's own name; then
+    `value_map[dataset_key]`, if any, maps the raw value onto the config's vocabulary. Unmapped
+    values pass through unchanged.
     """
     source_column = field.get("source_columns", {}).get(dataset_key, field["name"])
     raw_value = raw_row.get(source_column)
@@ -127,22 +109,12 @@ def _resolve_raw_value(field: dict, raw_row: dict, dataset_key) -> object:
 
 
 def build_metadata_transform(metadata_preprocessing_config: dict) -> Callable[[dict], list[float]]:
-    """Resolve a loaded metadata preprocessing config into a callable: raw metadata row (a plain
-    dict, e.g. one row of an `export_source_metadata_csv` CSV) -> a fixed-length feature vector,
-    fields concatenated in the config's own listed order. A field absent from
-    metadata_preprocessing_config["fields"] is implicitly dropped -- this function reads only the
-    fields the config actually lists, never every column the raw row happens to carry.
+    """Build a callable that turns a raw metadata row (a dict, e.g. one row of
+    export_source_metadata_csv's CSV) into a fixed-length feature vector. Only the fields the config
+    lists are used, in the config's order, so the output depends on the config alone.
 
-    Deterministic in both content and length given the config alone -- the same guarantee
-    `ml.preprocessing.build_transforms` gives for images, so a trained (image, metadata) model's
-    reported metrics are reproducible from `metadata_preprocessing_version` alone, not from
-    whatever ad hoc column selection happened to be applied locally that day.
-
-    raw_row's optional "dataset_key" entry (present on every row `export_source_metadata_csv`
-    writes) drives per-field `source_columns`/`value_map` reconciliation when a release combines
-    more than one dataset_key whose raw columns/values for the "same" conceptual field don't
-    already agree -- see docs/decisions/009-pin-metadata-feature-config-per-training-run.md.
-    Absent entirely for a single-dataset config, exactly as before that reconciliation existed.
+    The row's optional "dataset_key" selects each field's per-dataset `source_columns`/`value_map`,
+    for releases that combine datasets (ADR 009).
     """
     require_fields(
         metadata_preprocessing_config, METADATA_PREPROCESSING_REQUIRED_FIELDS, "metadata_preprocessing_config"

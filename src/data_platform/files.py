@@ -77,23 +77,13 @@ def iter_archive_image_rows(
     source_archive_uri: str | None = None,
     member_predicate: Callable[[Path], bool] | None = None,
 ) -> Iterator[dict]:
-    """Yield one dict per image directly from a local zip archive, bytes included.
+    """Yield one dict per image in a local zip archive, bytes included.
 
-    This is the one shared low-level primitive for every archive-streaming
-    consumer in this project (Bronze index build, Silver validation, Gold shard
-    export) — each decides for itself how long to keep `image_bytes` past its
-    own immediate use (Bronze: drops it after hashing; Silver: drops it after
-    decode; Gold export: keeps it just long enough to write a shard sample). No
-    image bytes are ever written back to a Volume or a table by this function
-    itself, and none should be persisted by any of its callers either — see
-    docs/decisions/004-stream-archives-no-blob-storage.md.
+    The one archive reader behind Bronze indexing, Silver validation and the shard export. Callers
+    drop the bytes as soon as they're done with them; nothing is persisted (ADR 004).
 
-    `member_predicate`, when given, is checked (by relative in-archive path)
-    before bytes are read at all — a caller that only wants a known subset of
-    an archive's images (Silver validating a subset that survived label
-    normalization; Gold export pulling just a sampled manifest's images out of
-    a full source archive) skips reading and checksumming the rest, rather
-    than paying for every image just to discard most of them.
+    `member_predicate`, when given, is checked on the member path before any bytes are read, so a
+    caller that needs only some images skips reading the rest.
     """
     for handle, member, relative_path in _iter_zip_members(archive_path):
         if not is_image_file(relative_path):
@@ -113,29 +103,16 @@ def iter_archive_image_rows(
 
 
 def format_bronze_uri(source_archive_uri: str, archive_member_path: str) -> str:
-    """Build the archive:<source_archive_uri>#<archive_member_path> URI used to
-    locate an image's bytes — the one canonical, pure-Python definition of this
-    format, and the inverse of parse_bronze_uri below.
-
-    `data_platform.spark_io.bronze_image_uri` builds the same string as a
-    lazy Spark Column expression instead of calling this directly (it can't —
-    Spark Columns are evaluated per-row inside Spark, not by calling a plain
-    Python function once), so that one stays a separate implementation. Any
-    driver-side Python code reconstructing this string (as opposed to building a
-    Spark Column) should call this function rather than retyping the format.
+    """Build the `archive:<source_archive_uri>#<archive_member_path>` URI that locates an image's
+    bytes. The inverse of parse_bronze_uri; spark_io.bronze_image_uri builds the same string as a
+    Spark Column.
     """
     return f"archive:{source_archive_uri}#{archive_member_path}"
 
 
 def parse_bronze_uri(bronze_uri: str) -> tuple[str, str]:
-    """Recover (source_archive_uri, archive_member_path) from a bronze_uri string.
-
-    The inverse of format_bronze_uri above (and, in Spark-Column form,
-    `data_platform.spark_io.bronze_image_uri`) — this is the only way any
-    downstream layer (Silver validation, Gold shard export) can locate an
-    image's bytes, since no layer stores them. Raises ValueError on anything
-    not in that exact shape, since a malformed bronze_uri means the image it
-    points at can never be found.
+    """Split a bronze_uri into (source_archive_uri, archive_member_path), which is all that's needed
+    to find the image in its archive. Raises ValueError on a malformed URI.
     """
     prefix = "archive:"
     if not bronze_uri.startswith(prefix) or "#" not in bronze_uri:
@@ -222,13 +199,7 @@ def raise_on_checksum_mismatches(checksum_mismatches: list[dict], expected_sourc
 
 
 def check_archives_exist(archives: list[dict]) -> None:
-    """Raise FileNotFoundError if any archive's local landing path is missing.
-
-    Assumes archive-based ingestion (each archive dict has `archive_local_path`/
-    `archive_dbfs_path`, e.g. from `data_platform.dataset_layout.resolve_archive_paths`) —
-    a dataset ingested from an API or another non-archive source has nothing to
-    preflight here and doesn't need this function.
-    """
+    """Raise FileNotFoundError if any archive is missing from the landing Volume."""
     for archive in archives:
         if not archive["archive_local_path"].exists():
             raise FileNotFoundError(f"Missing archive: {archive['archive_dbfs_path']}")
@@ -238,13 +209,9 @@ def check_archives_exist(archives: list[dict]) -> None:
 def stage_archives_and_extract_metadata(
     archives: list[dict], local_stage_root: Path, overwrite: bool = False
 ) -> list[dict]:
-    """Stage each archive locally and extract its single metadata file, setting
-    `staged_archive_path`/`metadata_target_path` on each archive dict. Returns the
-    same (mutated) archives list.
-
-    Assumes archive-based ingestion where each archive has exactly one metadata
-    file matching `metadata_filename` — a dataset ingested from an API or shipping
-    metadata some other way needs its own loader, not this function.
+    """Copy each archive to local disk and extract its metadata file, setting `staged_archive_path`
+    and `metadata_target_path` on each archive dict. Returns the same list. Expects exactly one
+    metadata file per archive, named `metadata_filename`.
     """
     for archive in archives:
         archive["staged_archive_path"] = stage_archive_locally(

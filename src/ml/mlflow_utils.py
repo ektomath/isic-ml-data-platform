@@ -1,12 +1,6 @@
-"""MLflow tracking setup shared by local-machine and Databricks-cluster training runs.
-
-Depends only on `mlflow-skinny` (a REST client, not a tracking server): this project only
-talks to the Databricks-hosted tracking server and never runs its own, so full mlflow's
-server stack isn't needed. See docs/decisions/007-pin-data-and-preprocessing-per-training-run.md
-for how runs are tracked. MLflow's own scope
-here is "what happened during training" (hyperparameters, metrics, artifacts) -- it is never the
-source of truth for data/preprocessing identity, which config/gold/training_runs/<name>.yaml owns
-instead.
+"""MLflow setup shared by local and Databricks training runs. Uses mlflow-skinny, a client only,
+since tracking goes to the Databricks-hosted server. MLflow records what happened in a run; which
+data and preprocessing it used is fixed by config/gold/training_runs/<name>.yaml (ADR 007).
 """
 
 from __future__ import annotations
@@ -26,21 +20,13 @@ def running_on_databricks() -> bool:
 
 
 def configure_mlflow_tracking(experiment_name: str | None, tracking_uri: str | None = None) -> str:
-    """Point MLflow at the right tracking store and experiment, identically in shape whether
-    called from a Databricks notebook or a local machine.
+    """Point MLflow at the tracking server and set the experiment. Returns the experiment name.
 
-    `tracking_uri`, if given, is used verbatim and takes priority over everything else -- this
-    is for tests (a local `file://` store) and advanced overrides, not normal use.
-    Otherwise: on Databricks, nothing needs to be set (the runtime already configures the
-    tracking URI); off Databricks, `mlflow.set_tracking_uri("databricks")` points at the same
-    Databricks-hosted tracking server over its REST API -- credentials are resolved by
-    `databricks-sdk` (an `mlflow-skinny` dependency) from `~/.databrickscfg` or the
-    `DATABRICKS_HOST`/`DATABRICKS_TOKEN` environment variables; this project's own code never
-    reads or handles those credentials directly.
-
-    Calls `mlflow.set_experiment(...)` with `experiment_name or DEFAULT_MLFLOW_EXPERIMENT`
-    (auto-created if it doesn't exist and the caller has permission) and returns the resolved
-    name.
+    On Databricks the runtime already sets the tracking URI. Elsewhere it's set to "databricks",
+    with credentials found by databricks-sdk in ~/.databrickscfg or DATABRICKS_HOST and
+    DATABRICKS_TOKEN; this project never reads them itself. `tracking_uri`, when given, overrides
+    both (used by tests). The experiment defaults to DEFAULT_MLFLOW_EXPERIMENT and is created if
+    missing.
     """
     if tracking_uri is not None:
         mlflow.set_tracking_uri(tracking_uri)
@@ -53,15 +39,8 @@ def configure_mlflow_tracking(experiment_name: str | None, tracking_uri: str | N
 
 
 def configure_model_registry(registry_uri: str | None = None) -> None:
-    """Point MLflow's model registry at Unity Catalog, identically in shape to
-    configure_mlflow_tracking -- but with different default logic, since Databricks does *not*
-    default the model registry to Unity Catalog on its own, even from inside a notebook where
-    the tracking URI is already configured for you. Only called at all when a training run
-    actually has a registered_model_name to register (see ml.train.run_training), so a run that
-    never registers a model never touches this global MLflow state.
-
-    `registry_uri`, if given, is used verbatim -- for tests (a local `file://` store, shared
-    with the tracking URI so a registered model lands in the same fixture directory) and
-    advanced overrides, not normal use.
+    """Point MLflow's model registry at Unity Catalog, which Databricks doesn't do by default, even
+    inside a notebook. Only called when a run registers a model. `registry_uri`, when given,
+    overrides it (used by tests).
     """
     mlflow.set_registry_uri(registry_uri if registry_uri is not None else "databricks-uc")

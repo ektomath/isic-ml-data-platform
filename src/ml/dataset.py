@@ -21,24 +21,15 @@ def label_to_index_map(label_values: list[str]) -> dict[str, int]:
 
 
 class GoldShardDataset(StreamingDataset):
-    """A `streaming.StreamingDataset` over one split of a Gold shard export
-    (`notebooks/31_export_gold_shards.ipynb`'s output), decoding each sample's raw image bytes
-    and mapping its label through a pinned vocabulary at read time.
+    """A StreamingDataset over one split of a shard export, decoding each image and mapping its
+    label to an index.
 
-    `local` is either a Databricks Volume path (mounted directly, no copy needed) or a
-    locally-`databricks fs cp -r`'d directory (docs/data_contract.md's Gold shard export
-    section) -- this class doesn't care which, `streaming.StreamingDataset` handles both
-    identically once `local` points at a real shard directory.
+    `local` is a Volume path or a local copy of the shards; both work the same. A label missing from
+    `label_to_index` raises KeyError, since it means the training run's label_values don't match the
+    data.
 
-    Raises KeyError at __getitem__ time if a sample's label isn't in `label_to_index` -- a real
-    mismatch between the training-run config's pinned label_values and this dataset_version's
-    actual data, worth surfacing immediately rather than silently coercing.
-
-    Windows note: `StreamingDataset` shares the same drive-letter/`urlparse` local-path quirk
-    already documented for `MDSWriter` in tests/test_shard_export.py -- a bare `C:\\...` path can
-    be misread as a URL scheme. Not a production issue (real usage always passes a `/Volumes/...`
-    or already-relative local path); tests work around it the same way (`monkeypatch.chdir` +
-    a relative `local` path).
+    On Windows, pass a relative path: an absolute drive-letter path can be misread as a URL (the
+    tests chdir for this).
     """
 
     def __init__(self, local: str, transform, label_to_index: dict[str, int], **streaming_kwargs):

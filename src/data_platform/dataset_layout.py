@@ -1,14 +1,6 @@
-"""Shared dataset layout helpers for Databricks notebooks and local scripts.
-
-A "layout" is the dict `build_layout()` returns below: every Volume path and
-table name one source dataset's Bronze/Silver notebooks need, all derived from
-that dataset's `config/bronze/datasets/<dataset>.yaml` plus the shared
-`config/storage.yaml` roots. It is deliberately scoped to *one dataset* — Gold
-is not part of it (see `build_layout`'s docstring for why) and there is no
-`GoldLayout`-equivalent here; `notebooks/30_create_gold_manifest.ipynb` and
-`notebooks/31_export_gold_shards.ipynb` build their own small `GOLD_TABLES`
-dict inline instead, since one Gold release spans however many source
-datasets it includes, not one.
+"""Paths and table names for one source dataset, built from its
+config/bronze/datasets/<dataset>.yaml and config/storage.yaml. Gold isn't included: a release spans
+several datasets, so the Gold notebooks name their tables themselves.
 """
 
 from __future__ import annotations
@@ -44,13 +36,8 @@ def load_storage_config(config_root: str | Path) -> dict:
 
 
 def load_dataset_config(path: str | Path) -> dict:
-    """Load one dataset's config file (config/bronze/datasets/<dataset>.yaml).
-
-    Mechanically identical to load_yaml_config -- this exists as its own name
-    purely so a call site (`load_dataset_config(CONFIG_ROOT / "bronze" / "datasets" / "isic_2019.yaml")`)
-    reads as "this YAML is a dataset config" without the reader having to check
-    the path argument, the same way every dataset notebook already names its
-    loaded dict `DATASET_CONFIG` rather than a generic `config`.
+    """Load one dataset's config (config/bronze/datasets/<dataset>.yaml). The same as
+    load_yaml_config, named so call sites say what they load.
     """
     return load_yaml_config(path)
 
@@ -61,26 +48,16 @@ def join_storage_path(storage_root: str, relative_path: str) -> str:
 
 
 def resolve_archive_paths(archives: list[dict], landing_paths: dict, bronze_paths: dict) -> list[dict]:
-    """Return a copy of `archives` (each dict from a dataset config's `archives`
-    list -- `source_split`, `archive_filename`, `metadata_filename`) with five
-    resolved-path fields added to each entry:
+    """Return a copy of a dataset config's `archives` entries, each with its resolved paths added:
 
-    - `archive_dbfs_path` (str) -- this archive's full landing Volume path, for
-      `dbutils.fs` / display.
-    - `archive_local_path` (Path) -- identical path, as a `Path`, for
-      `data_platform.files.check_archives_exist`/`stage_archive_locally`, which
-      read it with plain Python file I/O.
-    - `metadata_dir_path` (str) -- this split's Bronze metadata folder.
-    - `metadata_local_root` (Path) -- identical path, as a `Path`, for
-      `stage_archives_and_extract_metadata`'s extraction target.
-    - `metadata_target_path` (str) -- the specific metadata file's full path
-      once extracted there.
+    - `archive_dbfs_path`: the archive's landing Volume path.
+    - `archive_local_path`: the same path, as a Path.
+    - `metadata_dir_path`: the split's Bronze metadata folder.
+    - `metadata_local_root`: the same folder, as a Path.
+    - `metadata_target_path`: where the extracted metadata file ends up.
 
-    `archive_local_path`/`metadata_local_root` are `Path` because they are
-    handed to plain-Python file I/O in `data_platform.files` (Unity Catalog
-    Volume paths are directly readable on the driver's local filesystem);
-    every other path stays a plain string for use with `dbutils.fs` and
-    `spark.read`.
+    The Path versions are for plain Python file I/O in data_platform.files (Volumes are readable as
+    local files on the driver); the strings are for dbutils.fs and spark.read.
     """
     resolved = []
     for archive in archives:
@@ -96,33 +73,16 @@ def resolve_archive_paths(archives: list[dict], landing_paths: dict, bronze_path
 
 
 def build_layout(dataset_config: dict) -> dict:
-    """Build every Volume path and table name one source dataset's Bronze/Silver
-    notebooks need, from that dataset's config (`config/bronze/datasets/<dataset>.yaml`,
-    already merged with `config/storage.yaml`'s `landing_root`/`storage_root` by the
-    caller -- see any `05_setup_tables_and_folders.ipynb` for the pattern). Returns:
+    """Build the paths and table names one dataset's Bronze and Silver notebooks use, from its
+    config merged with config/storage.yaml's roots. Returns:
 
-    - `landing_paths` -- `None` if `dataset_config` has no `landing_root` set (a
-      dataset config loaded without merging in `config/storage.yaml` first), else
-      `{root, archives, dataset_archive}`: where this dataset's source archives
-      land.
-    - `bronze_paths` -- `{root, metadata}`: this dataset's Bronze folder, named after
-      its `dataset_key`, and the metadata folder inside it.
-    - `bronze_tables` -- `{source_metadata, image_index, ingestion_runs}`, this
-      dataset's two Bronze tables plus the shared `bronze.ingestion_runs`. Always
-      present.
-    - `silver_tables` -- `{image_inventory, leakage_groups, rejected_records}`, the
-      three shared, not dataset-prefixed, Silver tables (the same for every
-      dataset). There is no `silver_paths` -- Silver is table-only, no Volume
-      folders (`docs/architecture.md`).
-
-    Gold is not part of this layout at all, on purpose: a Gold release
-    (`gold.manifest_rows`, and the ephemeral MosaicML shard export built from
-    it) spans however many source datasets a given release includes, not one,
-    so it can never be derived from a single dataset's config the way
-    everything above can. `notebooks/30_create_gold_manifest.ipynb` and
-    `notebooks/31_export_gold_shards.ipynb` build their own small
-    `GOLD_TABLES = {"manifest_rows": "gold.manifest_rows"}` dict inline instead
-    of calling this function for it.
+    - `landing_paths`: {root, archives, dataset_archive}, where the archives land; None if the
+      config has no landing_root.
+    - `bronze_paths`: {root, metadata}, the dataset's Bronze folder and its metadata folder.
+    - `bronze_tables`: {source_metadata, image_index, ingestion_runs}; the last is shared by all
+      datasets.
+    - `silver_tables`: {image_inventory, leakage_groups, rejected_records}, shared by all datasets.
+      Silver has no folders.
     """
     dataset_key = dataset_config["dataset_key"]
     landing_root = dataset_config.get("landing_root")

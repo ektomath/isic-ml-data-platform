@@ -1,12 +1,6 @@
-"""Preprocessing-config loading and resolution into runtime transforms.
-
-Pure Python (plus torchvision), no Spark dependency -- unit-tested locally like
-`data_platform.files`/`validate`/`labels`/`sampling` (see tests/test_ml_preprocessing.py).
-
-A preprocessing config (`config/preprocessing/<name>.yaml`) is never applied to stored bytes --
-Gold shards hold raw, undecoded image bytes only (docs/decisions/004-stream-archives-no-blob-storage.md).
-This module is the one place a config dict turns into an actual `torchvision.transforms.Compose`,
-applied at training/inference load time only (docs/decisions/001-preprocessing-at-runtime.md).
+"""Turns a preprocessing config (config/preprocessing/<name>.yaml) into torchvision transforms.
+Applied when images are loaded for training or inference, never to stored bytes: shards hold the
+original encoded images (ADR 001, ADR 004).
 """
 
 from __future__ import annotations
@@ -52,15 +46,9 @@ def load_preprocessing_config(config_root: str | Path, preprocessing_version: st
 
 
 def build_transforms(preprocessing_config: dict, split: str) -> transforms.Compose:
-    """Resolve a loaded preprocessing config into a torchvision.transforms.Compose for one
-    split. `split == "train"` applies preprocessing_config["augmentation"]["train"]; every other
-    split (validation/test/inference) applies preprocessing_config["augmentation"]["eval"] (this
-    config's eval augmentation is empty, i.e. resize+crop+normalize only, no augmentation).
-
-    image_size comes from the config, not the crop_policy string, so a config's crop_policy
-    (e.g. "random_crop_224") and image_size (224) must agree -- both are recorded so a reader
-    doesn't have to parse the policy string to know the actual pixel size; this function trusts
-    image_size as the source of truth for the crop dimension.
+    """Build the transform for one split. "train" uses the config's train augmentation; every other
+    split uses its eval augmentation. The crop size comes from `image_size`, which must agree with
+    the size in crop_policy (e.g. random_crop_224).
     """
     require_fields(preprocessing_config, PREPROCESSING_REQUIRED_FIELDS, "preprocessing_config")
 
