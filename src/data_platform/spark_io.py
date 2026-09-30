@@ -282,7 +282,7 @@ def write_ingestion_run(
     spark,
     bronze_tables: dict,
     ingestion_run_id: str,
-    dataset_name: str,
+    dataset_key: str,
     source_version: str,
     started_at,
     finished_at,
@@ -290,15 +290,11 @@ def write_ingestion_run(
     records_written: int,
     status: str = "success",
 ) -> None:
-    """Write one row to the shared bronze.ingestion_runs table.
-
-    Ingestion-source-agnostic — works the same whether records came from archives,
-    an API, or anything else; the only thing every ingestion approach still shares.
-    """
+    """Append one row to the shared bronze.ingestion_runs table."""
     run_row = [
         {
             "ingestion_run_id": ingestion_run_id,
-            "dataset_name": dataset_name,
+            "dataset_key": dataset_key,
             "source_version": source_version,
             "started_at": started_at,
             "finished_at": finished_at,
@@ -311,7 +307,7 @@ def write_ingestion_run(
 
 
 def print_bronze_outputs(
-    spark, dbutils, display, landing_paths: dict, bronze_paths: dict, bronze_tables: dict, dataset_name: str
+    spark, dbutils, display, landing_paths: dict, bronze_paths: dict, bronze_tables: dict, dataset_key: str
 ) -> None:
     """Show what Bronze ingestion produced: the landed archives, the metadata folder, index counts
     by split, this dataset's recent ingestion runs, and sample rows.
@@ -328,7 +324,7 @@ def print_bronze_outputs(
     print("Recent ingestion runs:")
     display(
         spark.table(bronze_tables["ingestion_runs"])
-        .where(F.col("dataset_name") == dataset_name)
+        .where(F.col("dataset_key") == dataset_key)
         .orderBy("started_at", ascending=False)
     )
 

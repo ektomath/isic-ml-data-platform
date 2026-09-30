@@ -59,7 +59,7 @@ One row per ingestion run, shared across datasets.
 | Field | Type | Notes |
 |---|---|---|
 | `ingestion_run_id` | string | Primary key |
-| `dataset_name` | string | Example: `isic/2019` |
+| `dataset_key` | string | Which dataset, e.g. `isic_2019` |
 | `source_version` | string | Source release identifier, from the dataset config |
 | `started_at`, `finished_at` | timestamp | Run start and end |
 | `status` | string | `success` or `failed`; a failed run still writes its row, then raises |

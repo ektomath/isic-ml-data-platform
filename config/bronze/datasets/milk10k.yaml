@@ -2,7 +2,6 @@
 # One archive with no train/test split. The dataset has no version tag, so source_version
 # is just its name.
 dataset_key: milk10k
-dataset_name: isic/milk10k
 source_version: "milk10k"
 archives:
   - source_split: all

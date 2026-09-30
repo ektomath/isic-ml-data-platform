@@ -1,6 +1,5 @@
 # ISIC 2019: which archives to ingest and which columns feed the Silver labels.
 dataset_key: isic_2019
-dataset_name: isic/2019
 source_version: "2019"
 archives:
   - source_split: train
