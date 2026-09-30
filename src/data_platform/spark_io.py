@@ -843,7 +843,7 @@ def write_gold_release(
         raise ValueError(
             f"dataset_version={dataset_version!r} is already published in {manifest_table}. Releases "
             f"are immutable: give this selection a new dataset_version in its manifest config, or set "
-            f"OVERWRITE_EXISTING_RELEASE = True if you really mean to replace it."
+            f"the overwrite_existing_release parameter to true if you really mean to replace it."
         )
 
     inventory_df = spark.table(silver_tables["image_inventory"])

@@ -1,7 +1,0 @@
-# How the sample-v1 release is exported as shards, by notebooks/31_export_gold_shards.ipynb.
-dataset_version: sample-v1
-shard_size_limit_bytes: 67108864  # 64 MiB per shard file
-
-# Also write each dataset's source metadata for the release's images as a CSV beside the
-# shards (ADR 009). Optional, defaults to false.
-export_metadata_csv: true

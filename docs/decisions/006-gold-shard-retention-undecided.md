@@ -13,7 +13,7 @@ Shards can always be rebuilt from a published manifest and the source archives, 
 ## Decision
 
 - Retention is neither "short-lived" nor "permanent" by default; it hasn't been chosen.
-- Export configs have no `retention_days`, and the export notebook runs no cleanup step.
+- There's no retention setting, and the export notebook runs no cleanup step.
 - No lifecycle policy is planned.
 
 ## Consequences

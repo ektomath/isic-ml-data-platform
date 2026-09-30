@@ -41,10 +41,10 @@ Each notebook ends with a review cell that prints row counts, rejection reasons 
 
 | Notebook | Setting to change | What it produces |
 |---|---|---|
-| [`30_create_gold_manifest`](../notebooks/30_create_gold_manifest.ipynb) | `MANIFEST_NAME`, pointing at a file in [`config/gold/manifests/`](../config/gold/manifests/) | The release's rows in `gold.manifest_rows`, with splits and the git commit |
-| [`31_export_gold_shards`](../notebooks/31_export_gold_shards.ipynb) | `EXPORT_NAME`, pointing at a file in [`config/gold/exports/`](../config/gold/exports/) | Shards under `gold/<dataset_version>/shards/<split>/`, plus per-dataset metadata CSVs if `export_metadata_csv: true` |
+| [`30_create_gold_manifest`](../notebooks/30_create_gold_manifest.ipynb) | `release_name`, naming a file in [`config/gold/manifests/`](../config/gold/manifests/) | The release's rows in `gold.manifest_rows`, with splits and the git commit |
+| [`31_export_gold_shards`](../notebooks/31_export_gold_shards.ipynb) | `release_name` (the same release), and `export_metadata_csv` | Shards under `gold/<dataset_version>/shards/<split>/`, plus per-dataset metadata CSVs unless `export_metadata_csv` is false |
 
-The manifest config sets the datasets, label column, sample size, seeds and split ratios. To build a different release, add a new YAML file there rather than editing the notebook. A published release can't be rebuilt by accident: notebook 30 stops if the `dataset_version` already exists, unless you set `OVERWRITE_EXISTING_RELEASE = True`. Changing a release's selection should normally mean a new `dataset_version`. Both notebooks fail loudly if a leakage group spans two splits or a shard count doesn't match the manifest.
+The manifest config sets the datasets, label column, sample size, seeds and split ratios. To build a different release, add a new YAML file there rather than editing the notebook. A published release can't be rebuilt by accident: notebook 30 stops if the `dataset_version` already exists, unless the `overwrite_existing_release` parameter is `true`. Changing a release's selection should normally mean a new `dataset_version`. Both notebooks fail loudly if a leakage group spans two splits or a shard count doesn't match the manifest.
 
 ### Training
 
@@ -62,7 +62,7 @@ The same notebooks are also defined as jobs in [`databricks.yml`](../databricks.
 |---|---|---|---|
 | `setup` | 00 | Once per workspace | |
 | `ingest_isic_2019`, `ingest_milk10k` | 05, 10, 20 for that dataset | When you onboard a dataset or rebuild its Bronze and Silver | |
-| `build_release` | 30, 31 | Whenever you want a new training set | `release_name` (default `sample-v1`), `overwrite_existing_release` (default `false`) |
+| `build_release` | 30, 31 | Whenever you want a new training set | `release_name` (default `sample-v1`), `overwrite_existing_release` (default `false`), `export_metadata_csv` (default `true`) |
 | `train` | 40 | Whenever you want to train | `training_run_name` (default `sample-v1-resnet18`) |
 
 With the [Databricks CLI](https://docs.databricks.com/dev-tools/cli/) logged in to your workspace, from a clean checkout of the repo:

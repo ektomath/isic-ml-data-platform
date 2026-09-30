@@ -14,7 +14,7 @@ The steps don't happen together. The workspace is set up once. A dataset is inge
 
 - **One job per lifecycle step:** `setup` (notebook 00), `ingest_<dataset>` (05, 10, 20 for that dataset), `build_release` (30, 31) and `train` (40).
 - **One ingest job per dataset.** Each dataset has its own notebooks, and a job task's notebook path can't come from a parameter. Onboarding a dataset adds its config, its notebooks and one job entry.
-- **Parameters, not notebook edits.** `build_release` takes `release_name` (naming both its manifest and export configs) and `overwrite_existing_release`; `train` takes `training_run_name`. The notebooks read these as widgets whose defaults match a manual run, so opening a notebook by hand still works.
+- **Parameters, not notebook edits.** `build_release` takes `release_name` (naming its manifest config), `overwrite_existing_release` and `export_metadata_csv`; `train` takes `training_run_name`. The notebooks read these as widgets whose defaults match a manual run, so opening a notebook by hand still works.
 - **No schedules.** The sources don't change on their own, so every job is started by hand.
 - **The bundle passes the git commit.** A deployed bundle is a copy of the files, not a Git folder, so the commit lookup from [ADR 010](010-record-git-commit-on-releases-and-runs.md) would find nothing. `build_release` and `train` get `${bundle.git.commit}` as a parameter, which takes priority over the lookup.
 

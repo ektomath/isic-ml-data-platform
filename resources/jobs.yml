@@ -51,9 +51,12 @@ resources:
     build_release:
       name: build_release
       parameters:
-        # Names both config/gold/manifests/<release_name>.yaml and config/gold/exports/<release_name>.yaml.
+        # Names config/gold/manifests/<release_name>.yaml.
         - name: release_name
           default: sample-v1
+        # Also write each dataset's metadata CSV beside the shards.
+        - name: export_metadata_csv
+          default: "true"
         # A published release is only rebuilt when this is "true".
         - name: overwrite_existing_release
           default: "false"

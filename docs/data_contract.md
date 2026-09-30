@@ -15,7 +15,7 @@ The schema of every table and config file the platform writes or reads. This is 
 | `gold.manifest_rows` | Gold | Image in a training release | `dataset_version`, `dataset_key`, `image_id` |
 | `gold.manifest_registry` (view) | Gold | Training release | `dataset_version` |
 
-Bronze tables are per dataset because source schemas differ. Silver and Gold tables are shared across datasets and carry a `dataset_key` column, since an `image_id` is only unique within one dataset. Reruns never leave stale rows: a Bronze ingestion replaces the dataset's image index and source metadata, a Silver run replaces its dataset's rows in all three Silver tables (Delta `replaceWhere` on `dataset_key`), and a Gold release is written in one replace of its `dataset_version`. A published release is immutable: rebuilding it fails unless the manifest notebook's `OVERWRITE_EXISTING_RELEASE` is set.
+Bronze tables are per dataset because source schemas differ. Silver and Gold tables are shared across datasets and carry a `dataset_key` column, since an `image_id` is only unique within one dataset. Reruns never leave stale rows: a Bronze ingestion replaces the dataset's image index and source metadata, a Silver run replaces its dataset's rows in all three Silver tables (Delta `replaceWhere` on `dataset_key`), and a Gold release is written in one replace of its `dataset_version`. A published release is immutable: rebuilding it fails unless the `overwrite_existing_release` job parameter is `true`.
 
 ## Conventions
 
@@ -156,7 +156,7 @@ Training lineage lives in MLflow and Unity Catalog, not in a project table ([ADR
 
 `notebooks/31_export_gold_shards.ipynb` writes a release's images as MosaicML shards to `<storage_root>/gold/<dataset_version>/shards/<split>/`. Each sample carries `image` (raw encoded bytes), `label`, `image_id`, `dataset_key` and `group_id`. Shards are a rebuildable cache, never a second source of truth ([ADR 004](decisions/004-stream-archives-no-blob-storage.md)); how long they're kept is undecided ([ADR 006](decisions/006-gold-shard-retention-undecided.md)). They're keyed by `dataset_version` only, because the bytes are unprocessed and identical whatever the preprocessing.
 
-If the export config sets `export_metadata_csv: true`, the notebook also writes each dataset's Bronze source metadata for the release's images to `<storage_root>/gold/<dataset_version>/metadata/<dataset_key>_source_metadata.csv`, as future input for a multimodal model ([ADR 009](decisions/009-metadata-features-wait-for-a-model.md)). The baseline classifier doesn't read it.
+Unless the `export_metadata_csv` job parameter is false, the notebook also writes each dataset's Bronze source metadata for the release's images to `<storage_root>/gold/<dataset_version>/metadata/<dataset_key>_source_metadata.csv`, as future input for a multimodal model ([ADR 009](decisions/009-metadata-features-wait-for-a-model.md)). The baseline classifier doesn't read it.
 
 A dataset card for each release is planned but not built yet.
 
