@@ -6,7 +6,6 @@ from data_platform.files import (
     IMAGE_SUFFIXES,
     ArchiveMatches,
     check_archives_exist,
-    count_zip_members_by_suffix,
     extract_zip_members,
     format_bronze_uri,
     is_image_file,
@@ -123,25 +122,6 @@ def test_iter_archive_image_rows_applies_member_predicate_before_reading_bytes(t
     )
 
     assert [row["image_id"] for row in rows] == ["a"]
-
-
-def test_count_zip_members_by_suffix_groups_by_lowercase_suffix(tmp_path):
-    archive_path = tmp_path / "archive.zip"
-    with zipfile.ZipFile(archive_path, "w") as archive:
-        archive.writestr("a.jpg", "image-a")
-        archive.writestr("b.JPG", "image-b")
-        archive.writestr("metadata.csv", "image,dx\nISIC_1,nv\n")
-        archive.writestr("dir/", "")
-
-    assert count_zip_members_by_suffix(archive_path) == {".jpg": 2, ".csv": 1}
-
-
-def test_count_zip_members_by_suffix_empty_archive_returns_empty_dict(tmp_path):
-    archive_path = tmp_path / "archive.zip"
-    with zipfile.ZipFile(archive_path, "w"):
-        pass
-
-    assert count_zip_members_by_suffix(archive_path) == {}
 
 
 def test_is_image_file_uses_known_image_suffixes():

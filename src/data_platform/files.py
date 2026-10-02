@@ -62,15 +62,6 @@ def extract_zip_members(
     return extracted_paths
 
 
-def count_zip_members_by_suffix(archive_path: Path) -> dict[str, int]:
-    """Count non-directory zip members grouped by lowercased file suffix, for diagnostics."""
-    suffix_counts: dict[str, int] = {}
-    for _handle, _member, relative_path in _iter_zip_members(archive_path):
-        suffix = relative_path.suffix.lower()
-        suffix_counts[suffix] = suffix_counts.get(suffix, 0) + 1
-    return suffix_counts
-
-
 def iter_archive_image_rows(
     archive_path: Path,
     source_split: str,

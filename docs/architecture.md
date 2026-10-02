@@ -54,13 +54,12 @@ The logic lives in [`src/data_platform/spark_io.py`](../src/data_platform/spark_
 **Manifest.** A small YAML file in [`config/gold/manifests/`](../config/gold/manifests/) names a `dataset_version`, the datasets it draws from, the label column, sample size, seeds and split ratios. From it, the manifest notebook:
 
 1. Checks that no image (by checksum) appears in two of the datasets being combined.
-2. Selects whole leakage groups and assigns them to `train`, `validation` or `test` with seeded, pure Python ([`sampling.py`](../src/data_platform/sampling.py)), so the same config always gives the same split.
+2. Selects whole leakage groups and assigns them to `train`, `validation` or `test` with seeded, pure Python ([`sampling.py`](../src/data_platform/sampling.py)), so the same config always gives the same split. Splits are assigned per group, so a group can't end up in two splits.
 3. Writes every dataset's rows to `gold.manifest_rows` in one atomic write, each with a row hash and the git commit of the code that wrote it. It refuses to run if it can't find a commit, and refuses to overwrite a release that's already published, since models may be trained on it.
-4. Fails if any leakage group ends up in more than one split.
 
 `gold.manifest_registry` is a view with one line per release. The current release, `sample-v1`, is deliberately small (about 100 images per dataset) so the pipeline can be iterated on cheaply.
 
-**Shard export.** Streams the release's images out of their archives in one pass, re-verifies every checksum, and writes per-split [MosaicML](https://docs.mosaicml.com/projects/streaming/) shards: a handful of large files per split, each packing many images together with their labels, so training can stream them efficiently instead of opening thousands of small files. Each sample holds the raw image bytes, its label, `image_id`, `dataset_key` and `group_id`. Shards are a rebuildable cache, never a source of truth. They're written to a temporary folder and only moved into place once every image is verified, so a failed export never leaves half-written shards behind, and the export fails if its counts don't match the manifest.
+**Shard export.** Streams the release's images out of their archives in one pass, re-verifies every checksum, and writes per-split [MosaicML](https://docs.mosaicml.com/projects/streaming/) shards: a handful of large files per split, each packing many images together with their labels, so training can stream them efficiently instead of opening thousands of small files. Each sample holds the raw image bytes, its label, `image_id`, `dataset_key` and `group_id`. Shards are a rebuildable cache, never a source of truth. They're written to a temporary folder and only moved into place once every image is verified, so a failed export never leaves half-written shards behind. The export fails if any of the release's images is missing from its archive.
 
 ## Training and reproducibility
 

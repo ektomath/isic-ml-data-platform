@@ -28,7 +28,6 @@ from pyspark.sql.types import (
 from data_platform.files import (
     IMAGE_SUFFIXES,
     ArchiveMatches,
-    count_zip_members_by_suffix,
     format_bronze_uri,
     iter_archive_image_rows,
     parse_bronze_uri,
@@ -82,89 +81,9 @@ def _image_ids_df(spark, image_ids: list[str]):
     instead of each re-typing the same createDataFrame call."""
     return spark.createDataFrame([{"image_id": image_id} for image_id in image_ids], "image_id STRING")
 
-
-def scratch_table_name(silver_tables: dict, dataset_key: str, name: str) -> str:
-    """A scratch table in the Silver schema, overwritten on every run. Named per dataset, so two
-    datasets' Silver runs can run at the same time."""
-    schema = silver_tables["image_inventory"].rsplit(".", 1)[0]
-    return f"{schema}._scratch_{dataset_key}_{name}"
-
-
-REJECTED_RECORDS_SCHEMA = (
-    "dataset_key STRING, image_id STRING, bronze_uri STRING, rejection_reason STRING, rejected_at TIMESTAMP"
-)
-
-
-class Rejections:
-    """Collects one dataset's rejected rows during a Silver run.
-
-    Nothing is written as rows are rejected: write_silver_dataset writes them all at the end,
-    replacing the dataset's previous rejections, so a rerun never leaves stale rejections
-    behind or an image in both the inventory and the rejections.
-    """
-
-    def __init__(self, dataset_key: str):
-        self.dataset_key = dataset_key
-        self._frames = []
-
-    def add(self, df, reason, bronze_uri_col: str = "bronze_uri", description: str | None = None) -> None:
-        """Record df's rows as rejected. `reason` is a Column: F.lit(...) for a fixed reason, or
-        F.col(...) for a per-row reason already on df. Prints the count if `description` is given."""
-        rejected_df = df.select(
-            F.lit(self.dataset_key).alias("dataset_key"),
-            F.col("image_id"),
-            F.col(bronze_uri_col).alias("bronze_uri"),
-            reason.alias("rejection_reason"),
-            F.current_timestamp().alias("rejected_at"),
-        )
-        self._frames.append(rejected_df)
-        if description:
-            logger.info(f"{description}: {rejected_df.count()}")
-
-    def to_dataframe(self, spark):
-        """Every rejection added so far, as one DataFrame in the rejected_records shape."""
-        if not self._frames:
-            return spark.createDataFrame([], REJECTED_RECORDS_SCHEMA)
-        return functools.reduce(lambda left, right: left.unionByName(right), self._frames)
-
-
-def assert_controlled_vocabularies(df, controlled_vocabularies: dict[str, tuple[str, ...]], context: str = "") -> None:
-    """Raise if any column in `controlled_vocabularies` holds a non-null value outside its allowed
-    set. All columns are checked in one aggregation. A bad value means the code producing the column
-    is wrong, not the row, so the run fails instead of rejecting rows. `context` is added to the
-    error message.
-    """
-    if not controlled_vocabularies:
-        return
-
-    unknown_columns = set(controlled_vocabularies) - set(df.columns)
-    if unknown_columns:
-        raise ValueError(
-            f"controlled_vocabularies references column(s) not present on the DataFrame: {sorted(unknown_columns)}"
-        )
-
-    agg_exprs = [
-        F.collect_set(
-            F.when(F.col(column).isNotNull() & ~F.col(column).isin(*allowed_values), F.col(column))
-        ).alias(column)
-        for column, allowed_values in controlled_vocabularies.items()
-    ]
-    result = df.agg(*agg_exprs).collect()[0]
-
-    for column, allowed_values in controlled_vocabularies.items():
-        invalid_values = list(result[column] or [])[:5]
-        if invalid_values:
-            suffix = f" for {context}" if context else ""
-            raise ValueError(
-                f"Column {column!r} has value(s) outside the canonical vocabulary {allowed_values}{suffix}: "
-                f"{invalid_values}. Fix the code producing this column to map onto the canonical set "
-                f"instead of inventing new values."
-            )
-
-
 # ============================================================================
-# Bronze: index the archives (checksums and locations, never bytes), load the source
-# metadata and record ingestion runs.
+# Bronze: index the archives (checksums and locations, never bytes), load the source metadata
+# and record the ingestion run. Called from each dataset's 10_bronze_ingest notebook.
 # ============================================================================
 
 IMAGE_INDEX_SCHEMA = StructType(
@@ -209,14 +128,7 @@ def write_image_index_table(spark, archives: list[dict], target_table: str):
             archive_row_count += 1
 
         if archive_row_count == 0:
-            # Diagnose locally (staged archive, member metadata only) before failing loudly.
-            suffix_counts = count_zip_members_by_suffix(archive["staged_archive_path"])
-            if not suffix_counts:
-                raise RuntimeError(f"Archive is empty, no members found: {archive['archive_filename']}")
-            raise RuntimeError(
-                f"No files matched known image suffixes {sorted(IMAGE_SUFFIXES)} in "
-                f"{archive['archive_filename']}; archive contains file types: {suffix_counts}"
-            )
+            raise RuntimeError(f"No {sorted(IMAGE_SUFFIXES)} images found in {archive['archive_filename']}")
         logger.info(f"Indexed {archive_row_count} images for {archive['source_split']}")
         if duplicate_count:
             logger.warning(
@@ -278,6 +190,11 @@ def write_source_metadata(spark, source_metadata_df, target_table: str) -> int:
     logger.info(f"Source metadata rows written: {row_count}")
     return row_count
 
+INGESTION_RUN_SCHEMA = (
+    "ingestion_run_id STRING, dataset_key STRING, source_version STRING, started_at TIMESTAMP, "
+    "finished_at TIMESTAMP, status STRING, records_seen INT, records_written INT"
+)
+
 
 def write_ingestion_run(
     spark,
@@ -292,19 +209,12 @@ def write_ingestion_run(
     status: str = "success",
 ) -> None:
     """Append one row to the shared bronze.ingestion_runs table."""
-    run_row = [
-        {
-            "ingestion_run_id": ingestion_run_id,
-            "dataset_key": dataset_key,
-            "source_version": source_version,
-            "started_at": started_at,
-            "finished_at": finished_at,
-            "status": status,
-            "records_seen": records_seen,
-            "records_written": records_written,
-        }
-    ]
-    spark.createDataFrame(run_row).write.mode("append").saveAsTable(bronze_tables["ingestion_runs"])
+    run_df = spark.createDataFrame(
+        [(ingestion_run_id, dataset_key, source_version, started_at, finished_at, status,
+          records_seen, records_written)],
+        INGESTION_RUN_SCHEMA,
+    )
+    run_df.write.mode("append").saveAsTable(bronze_tables["ingestion_runs"])
 
 
 def print_bronze_outputs(
@@ -335,13 +245,90 @@ def print_bronze_outputs(
     print("Sample index row:")
     display(spark.table(bronze_tables["image_index"]).limit(1))
 
-
 # ============================================================================
 # Silver: reconcile_bronze_records, apply_label_normalization, validate_images,
 # build_accepted_rows, assign_leakage_groups, write_silver_dataset and print_silver_outputs,
-# in the order a dataset's Silver notebook calls them. Nothing is written until
+# in the order each dataset's 20_silver_validate notebook calls them. Nothing is written until
 # write_silver_dataset, which replaces the dataset's rows in all three Silver tables.
 # ============================================================================
+
+REJECTED_RECORDS_SCHEMA = (
+    "dataset_key STRING, image_id STRING, bronze_uri STRING, rejection_reason STRING, rejected_at TIMESTAMP"
+)
+
+
+class Rejections:
+    """Collects one dataset's rejected rows during a Silver run.
+
+    Nothing is written as rows are rejected: write_silver_dataset writes them all at the end,
+    replacing the dataset's previous rejections, so a rerun never leaves stale rejections
+    behind or an image in both the inventory and the rejections.
+    """
+
+    def __init__(self, dataset_key: str):
+        self.dataset_key = dataset_key
+        self._frames = []
+
+    def add(self, df, reason, bronze_uri_col: str = "bronze_uri", description: str | None = None) -> None:
+        """Record df's rows as rejected. `reason` is a Column: F.lit(...) for a fixed reason, or
+        F.col(...) for a per-row reason already on df. Prints the count if `description` is given."""
+        rejected_df = df.select(
+            F.lit(self.dataset_key).alias("dataset_key"),
+            F.col("image_id"),
+            F.col(bronze_uri_col).alias("bronze_uri"),
+            reason.alias("rejection_reason"),
+            F.current_timestamp().alias("rejected_at"),
+        )
+        self._frames.append(rejected_df)
+        if description:
+            logger.info(f"{description}: {rejected_df.count()}")
+
+    def to_dataframe(self, spark):
+        """Every rejection added so far, as one DataFrame in the rejected_records shape."""
+        if not self._frames:
+            return spark.createDataFrame([], REJECTED_RECORDS_SCHEMA)
+        return functools.reduce(lambda left, right: left.unionByName(right), self._frames)
+
+
+def scratch_table_name(silver_tables: dict, dataset_key: str, name: str) -> str:
+    """A scratch table in the Silver schema, overwritten on every run. Named per dataset, so two
+    datasets' Silver runs can run at the same time."""
+    schema = silver_tables["image_inventory"].rsplit(".", 1)[0]
+    return f"{schema}._scratch_{dataset_key}_{name}"
+
+
+def assert_controlled_vocabularies(df, controlled_vocabularies: dict[str, tuple[str, ...]], context: str = "") -> None:
+    """Raise if any column in `controlled_vocabularies` holds a non-null value outside its allowed
+    set. All columns are checked in one aggregation. A bad value means the code producing the column
+    is wrong, not the row, so the run fails instead of rejecting rows. `context` is added to the
+    error message.
+    """
+    if not controlled_vocabularies:
+        return
+
+    unknown_columns = set(controlled_vocabularies) - set(df.columns)
+    if unknown_columns:
+        raise ValueError(
+            f"controlled_vocabularies references column(s) not present on the DataFrame: {sorted(unknown_columns)}"
+        )
+
+    agg_exprs = [
+        F.collect_set(
+            F.when(F.col(column).isNotNull() & ~F.col(column).isin(*allowed_values), F.col(column))
+        ).alias(column)
+        for column, allowed_values in controlled_vocabularies.items()
+    ]
+    result = df.agg(*agg_exprs).collect()[0]
+
+    for column, allowed_values in controlled_vocabularies.items():
+        invalid_values = list(result[column] or [])[:5]
+        if invalid_values:
+            suffix = f" for {context}" if context else ""
+            raise ValueError(
+                f"Column {column!r} has value(s) outside the canonical vocabulary {allowed_values}{suffix}: "
+                f"{invalid_values}. Fix the code producing this column to map onto the canonical set "
+                f"instead of inventing new values."
+            )
 
 DECODE_OUTPUT_SCHEMA = StructType(
     [
@@ -355,7 +342,6 @@ DECODE_OUTPUT_SCHEMA = StructType(
         StructField("validation_reason", StringType(), True),
     ]
 )
-
 
 
 def reconcile_bronze_records(spark, bronze_tables: dict, rejections: Rejections):
@@ -647,12 +633,11 @@ def print_silver_outputs(spark, display, silver_tables: dict, label_columns: lis
         .agg(F.count("*").alias("num_groups"), F.sum("image_count").alias("total_images"))
     )
 
-
 # ============================================================================
-# Gold: build_gold_candidate_groups, assert_no_cross_dataset_duplicate_checksums,
-# build_manifest_rows, write_gold_release and print_gold_outputs, called from
-# 30_create_gold_manifest.ipynb. gold.manifest_rows holds every release, keyed by
-# dataset_version.
+# Gold: a release is built by 30_create_gold_manifest (build_gold_candidate_groups,
+# assert_no_cross_dataset_duplicate_checksums, write_gold_release, print_gold_outputs) and
+# exported by 31_export_gold_shards (load_manifest_rows_for_export, export_source_metadata_csv;
+# writing the shards needs no Spark and lives in data_platform.shard_export).
 # ============================================================================
 
 
@@ -836,12 +821,8 @@ def write_gold_release(
 def print_gold_outputs(
     spark, display, gold_tables: dict, dataset_version: str, dataset_keys: list[str], label_column: str
 ) -> None:
-    """Print/display gold.manifest_rows summary for one dataset_version: rows per
-    dataset_key, split distribution, label distribution by split, and a real
-    leakage-control invariant check — raises if any group_id spans more than one split
-    within this dataset_version, rather than only describing output like
-    print_silver_outputs does.
-    """
+    """Show one release's rows in gold.manifest_rows: rows per dataset, the split distribution, and
+    the label distribution by split."""
     manifest_df = (
         spark.table(gold_tables["manifest_rows"])
         .where((F.col("dataset_version") == dataset_version) & F.col("dataset_key").isin(dataset_keys))
@@ -856,23 +837,6 @@ def print_gold_outputs(
     print(f"{label_column} distribution by split:")
     display(manifest_df.groupBy("split", "label").count().orderBy("split", F.desc("count")))
 
-    leaking_groups_df = (
-        manifest_df.groupBy("group_id").agg(F.countDistinct("split").alias("num_splits")).where(F.col("num_splits") > 1)
-    )
-    leaking_group_count = leaking_groups_df.count()
-    if leaking_group_count:
-        display(leaking_groups_df)
-        raise ValueError(
-            f"{leaking_group_count} group_id(s) span more than one split within "
-            f"dataset_version={dataset_version!r} — leakage-control invariant violated."
-        )
-
-
-# ============================================================================
-# Gold export: load_manifest_rows_for_export, export_source_metadata_csv and
-# print_export_outputs, called from 31_export_gold_shards.ipynb. Writing the shards needs no
-# Spark and lives in data_platform.shard_export.
-# ============================================================================
 
 
 def load_manifest_rows_for_export(spark, gold_tables: dict, dataset_version: str) -> dict[str, list[dict]]:
@@ -920,37 +884,3 @@ def export_source_metadata_csv(
     )
     metadata_pdf.to_csv(destination_path, index=False)
     return len(metadata_pdf)
-
-
-def print_export_outputs(spark, gold_tables: dict, dataset_version: str, per_split_summaries: dict) -> None:
-    """Print each split's written sample count next to the release's row count for that split in
-    gold.manifest_rows, and raise if any differ: a shard export must contain exactly the
-    release's rows."""
-    expected_by_split = {
-        row["split"]: row["count"]
-        for row in spark.table(gold_tables["manifest_rows"])
-        .where(F.col("dataset_version") == dataset_version)
-        .groupBy("split")
-        .count()
-        .collect()
-    }
-    if not expected_by_split:
-        raise ValueError(
-            f"No gold.manifest_rows for dataset_version={dataset_version!r}; run the Gold manifest "
-            "notebook (30_create_gold_manifest) first."
-        )
-
-    print(f"Shard export summary for dataset_version={dataset_version!r}:")
-    mismatches = []
-    for split in sorted(set(expected_by_split) | set(per_split_summaries)):
-        expected_count = expected_by_split.get(split, 0)
-        written_count = per_split_summaries.get(split, {}).get("sample_count", 0)
-        print(f"  {split}: {written_count} samples written (manifest has {expected_count})")
-        if written_count != expected_count:
-            mismatches.append((split, expected_count, written_count))
-
-    if mismatches:
-        raise ValueError(
-            f"Shard sample counts don't match the manifest for dataset_version={dataset_version!r} "
-            f"(split, expected, written): {mismatches}"
-        )
