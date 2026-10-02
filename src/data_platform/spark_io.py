@@ -34,6 +34,7 @@ from data_platform.files import (
     parse_bronze_uri,
     raise_on_checksum_mismatches,
 )
+from data_platform.leakage import assign_groups
 from data_platform.validate import MAX_DIMENSION, MIN_DIMENSION, decode_image
 
 logger = logging.getLogger(__name__)
@@ -355,17 +356,6 @@ DECODE_OUTPUT_SCHEMA = StructType(
     ]
 )
 
-CHECKSUM_DUP_MIN_COUNT = 2
-
-# group_source only ever depends on group_type, so it's a static lookup rather than
-# re-testing the checksum/lesion/patient predicates a second time. Every key and value
-# here is a universal Silver column name, identical for any dataset.
-GROUP_SOURCE_BY_TYPE = {
-    "duplicate": "source_checksum",
-    "lesion": "lesion_id",
-    "patient": "patient_id",
-    "singleton": "image_id",
-}
 
 
 def reconcile_bronze_records(spark, bronze_tables: dict, rejections: Rejections):
@@ -560,46 +550,27 @@ def build_accepted_rows(label_valid_df, image_valid_df, label_columns: list[str]
 def assign_leakage_groups(accepted_df, label_columns: list[str]):
     """Assign every accepted image a leakage-control group and build the Silver rows.
 
-    Group priority: exact duplicates (same source_checksum within the dataset), then same
-    lesion_id, then same patient_id, otherwise a group of its own. Grouping is scoped per
-    dataset, and group_id embeds dataset_key so it stays unique across datasets even if two
-    reuse the same IDs. accepted_df must carry dataset_key (build_accepted_rows adds it).
+    Images sharing the same bytes, lesion or patient, directly or through a chain of such links,
+    share a group (data_platform.leakage.assign_groups); the ID columns are collected to the
+    driver for that, one small row per image. accepted_df must carry dataset_key
+    (build_accepted_rows adds it).
 
-    Pure transformation, nothing written: returns (image_inventory_df, leakage_groups_df)
-    for write_silver_dataset.
+    Nothing is written: returns (image_inventory_df, leakage_groups_df) for write_silver_dataset.
     """
-    checksum_counts_df = accepted_df.groupBy("dataset_key", "source_checksum").agg(
-        F.count("*").alias("checksum_count")
+    images = [
+        row.asDict()
+        for row in accepted_df.select("dataset_key", "image_id", "source_checksum", "lesion_id", "patient_id").collect()
+    ]
+    group_rows = [
+        (dataset_key, image_id, group_id, group_type)
+        for (dataset_key, image_id), (group_id, group_type) in assign_groups(images).items()
+    ]
+    groups_df = accepted_df.sparkSession.createDataFrame(
+        group_rows, "dataset_key STRING, image_id STRING, group_id STRING, group_type STRING"
     )
-    group_source_map = F.create_map(*[F.lit(item) for pair in GROUP_SOURCE_BY_TYPE.items() for item in pair])
+    grouped_df = accepted_df.join(groups_df, on=["dataset_key", "image_id"])
 
-    grouped_df = (
-        accepted_df.join(checksum_counts_df, on=["dataset_key", "source_checksum"])
-        .withColumn(
-            "group_type",
-            F.when(F.col("checksum_count") >= CHECKSUM_DUP_MIN_COUNT, F.lit("duplicate"))
-            .when(F.col("lesion_id").isNotNull(), F.lit("lesion"))
-            .when(F.col("patient_id").isNotNull(), F.lit("patient"))
-            .otherwise(F.lit("singleton")),
-        )
-        .withColumn("group_source", group_source_map[F.col("group_type")])
-        .withColumn(
-            # The grouping key's value still branches on group_type: Spark can't pick a
-            # column by another column's value without a UDF.
-            "group_key_value",
-            F.when(F.col("group_type") == "duplicate", F.col("source_checksum"))
-            .when(F.col("group_type") == "lesion", F.col("lesion_id"))
-            .when(F.col("group_type") == "patient", F.col("patient_id"))
-            .otherwise(F.col("image_id")),
-        )
-        .withColumn(
-            "group_id",
-            F.concat(F.col("dataset_key"), F.lit(":"), F.col("group_type"), F.lit(":"), F.col("group_key_value")),
-        )
-        .drop("group_key_value")
-    )
-
-    leakage_groups_df = grouped_df.groupBy("dataset_key", "group_id", "group_type", "group_source").agg(
+    leakage_groups_df = grouped_df.groupBy("dataset_key", "group_id", "group_type").agg(
         F.count("*").alias("image_count")
     )
 

@@ -61,15 +61,16 @@ def _groups_by_image(image_inventory_df):
     return {row["image_id"]: row["group_id"] for row in image_inventory_df.select("image_id", "group_id").collect()}
 
 
-def test_assign_leakage_groups_uses_duplicate_then_lesion_then_patient_then_singleton(spark):
+def test_assign_leakage_groups_keeps_linked_images_together(spark):
     accepted_df = spark.createDataFrame(
         [
-            _accepted_row("dup1", "same-bytes", lesion_id="L9"),
-            _accepted_row("dup2", "same-bytes"),
+            # One patient with two lesions: all three images belong together.
             _accepted_row("les1", "c1", lesion_id="L1", patient_id="P1"),
             _accepted_row("les2", "c2", lesion_id="L1"),
-            _accepted_row("pat1", "c3", patient_id="P2"),
-            _accepted_row("pat2", "c4", patient_id="P2"),
+            _accepted_row("les3", "c3", lesion_id="L2", patient_id="P1"),
+            # Identical bytes, one of them with a lesion of its own.
+            _accepted_row("dup1", "same-bytes", lesion_id="L9"),
+            _accepted_row("dup2", "same-bytes"),
             _accepted_row("alone", "c5"),
         ],
         ACCEPTED_SCHEMA,
@@ -78,17 +79,14 @@ def test_assign_leakage_groups_uses_duplicate_then_lesion_then_patient_then_sing
     image_inventory_df, leakage_groups_df = assign_leakage_groups(accepted_df, ["malignancy"])
     group_by_image = _groups_by_image(image_inventory_df)
 
-    # Identical bytes win over a lesion id, and share a group.
-    assert group_by_image["dup1"] == group_by_image["dup2"] == "isic_2019:duplicate:same-bytes"
-    # Lesion wins over patient.
-    assert group_by_image["les1"] == group_by_image["les2"] == "isic_2019:lesion:L1"
-    assert group_by_image["pat1"] == group_by_image["pat2"] == "isic_2019:patient:P2"
-    assert group_by_image["alone"] == "isic_2019:singleton:alone"
+    assert group_by_image["les1"] == group_by_image["les2"] == group_by_image["les3"] == "isic_2019:les1"
+    assert group_by_image["dup1"] == group_by_image["dup2"] == "isic_2019:dup1"
+    assert group_by_image["alone"] == "isic_2019:alone"
 
     groups = {row["group_id"]: row for row in leakage_groups_df.collect()}
-    assert groups["isic_2019:lesion:L1"]["image_count"] == 2
-    assert groups["isic_2019:lesion:L1"]["group_source"] == "lesion_id"
-    assert groups["isic_2019:singleton:alone"]["group_type"] == "singleton"
+    assert (groups["isic_2019:les1"]["group_type"], groups["isic_2019:les1"]["image_count"]) == ("lesion+patient", 3)
+    assert groups["isic_2019:dup1"]["group_type"] == "duplicate"
+    assert groups["isic_2019:alone"]["group_type"] == "singleton"
 
 
 def test_assign_leakage_groups_marks_every_row_accepted(spark):

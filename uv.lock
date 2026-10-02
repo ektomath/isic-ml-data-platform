@@ -1573,6 +1573,8 @@ dependencies = [
     { name = "pillow" },
     { name = "pyyaml" },
     { name = "scikit-learn" },
+    { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "scipy", version = "1.18.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "torch" },
     { name = "torchvision" },
 ]
@@ -1597,6 +1599,7 @@ requires-dist = [
     { name = "pyyaml" },
     { name = "ruff", marker = "extra == 'dev'" },
     { name = "scikit-learn", specifier = "==1.9.0" },
+    { name = "scipy" },
     { name = "torch", specifier = "==2.13.0" },
     { name = "torchvision", specifier = "==0.28.0" },
 ]

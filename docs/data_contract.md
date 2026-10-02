@@ -92,14 +92,13 @@ Label columns are real named columns, added with `ALTER TABLE ... ADD COLUMNS` w
 
 ### `silver.leakage_groups`
 
-Groups images that must never be split across train, validation and test: exact duplicates first (same `source_checksum`), then same lesion, then same patient, otherwise a singleton. Grouping is scoped per dataset, because patient and lesion IDs aren't comparable across sources. Exact duplicate images across datasets are caught separately before Gold sampling ([ADR 003](decisions/003-cross-dataset-leakage-not-checked.md)).
+Groups images that must never be split across train, validation and test. Images sharing the same `source_checksum`, `lesion_id` or `patient_id`, directly or through a chain of such links, are in one group (connected components, in `data_platform.leakage`); an image with no link is a singleton. Grouping is scoped per dataset, because patient and lesion IDs aren't comparable across sources. Exact duplicate images across datasets are caught separately before Gold sampling ([ADR 003](decisions/003-cross-dataset-leakage-not-checked.md)).
 
 | Field | Type | Notes |
 |---|---|---|
 | `dataset_key` | string | Which dataset the group belongs to |
-| `group_id` | string | Embeds `dataset_key`, so it's globally unique |
-| `group_type` | string | `duplicate`, `lesion`, `patient` or `singleton` |
-| `group_source` | string | Which rule formed the group |
+| `group_id` | string | `<dataset_key>:<lowest image_id in the group>`, so it's globally unique |
+| `group_type` | string | The kinds of link that formed the group, e.g. `lesion`, `duplicate+lesion` or `lesion+patient`, or `singleton` |
 | `image_count` | integer | Images in the group |
 
 ### `silver.rejected_records`

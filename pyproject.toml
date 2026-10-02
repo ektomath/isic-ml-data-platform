@@ -12,6 +12,7 @@ dependencies = [
   "PyYAML",
   "Pillow",
   "pandas",
+  "scipy",
   "mosaicml-streaming==0.13.0",
   "torch==2.13.0",
   "torchvision==0.28.0",

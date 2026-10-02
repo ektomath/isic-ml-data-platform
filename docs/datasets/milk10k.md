@@ -37,7 +37,7 @@ A row where neither resolves is rejected.
 
 ## Leakage grouping
 
-Exact duplicate images first, then `lesion_id`, otherwise a singleton. With no `patient_id`, images of the same patient's different lesions can't be grouped.
+Images sharing identical bytes or a `lesion_id` form one group. With no `patient_id`, images of the same patient's different lesions can't be grouped.
 
 ## Image validation
 

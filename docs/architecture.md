@@ -46,7 +46,7 @@ The logic lives in [`src/data_platform/spark_io.py`](../src/data_platform/spark_
 
    Rows where neither label resolves are rejected with a reason.
 3. **Validate images.** Each candidate is streamed from its archive, checksum-verified and decoded. Unreadable images and images outside 50 to 15,000 pixels per side are rejected.
-4. **Group for leakage control.** Every accepted image gets a `group_id`, in priority order: identical bytes, then same lesion, then same patient, otherwise its own group. Splits are later made by group, never by image.
+4. **Group for leakage control.** Every accepted image gets a `group_id`. Images that share identical bytes, a lesion or a patient, directly or through a chain of such links, end up in the same group, so a patient's different lesions stay together; an image with no such link is its own group. Splits are later made by group, never by image.
 5. **Write** this dataset's results, replacing its rows from any earlier run, to three tables shared by every dataset: `silver.image_inventory` (accepted images with labels and group), `silver.leakage_groups` and `silver.rejected_records` (every excluded image and why).
 
 ### Gold: publish a versioned training dataset
